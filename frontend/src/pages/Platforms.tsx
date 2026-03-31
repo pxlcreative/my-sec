@@ -1,0 +1,146 @@
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Plus, Tag, Eye, Loader2 } from 'lucide-react'
+import { getPlatforms, createPlatform } from '../api/client'
+import { Skeleton } from '../components/Skeleton'
+import { useToast } from '../components/Toast'
+import { formatDate } from '../utils'
+
+export default function Platforms() {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { addToast } = useToast()
+
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+
+  const { data: platforms, isLoading, error } = useQuery({
+    queryKey: ['platforms'],
+    queryFn: getPlatforms,
+  })
+
+  const createMutation = useMutation({
+    mutationFn: () => createPlatform({ name: name.trim(), description: description.trim() || undefined }),
+    onSuccess: (newPlatform) => {
+      queryClient.invalidateQueries({ queryKey: ['platforms'] })
+      addToast(`Platform "${newPlatform.name}" created`, 'success')
+      setName('')
+      setDescription('')
+    },
+    onError: () => addToast('Failed to create platform', 'error'),
+  })
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-36" />)}
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
+        Failed to load platforms.
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Platforms</h1>
+        <span className="text-sm text-gray-500">{platforms?.length ?? 0} platforms</span>
+      </div>
+
+      {/* Platform cards */}
+      {!platforms || platforms.length === 0 ? (
+        <div className="bg-white border border-gray-200 rounded-lg p-10 text-center text-gray-400 mb-8">
+          <Tag className="w-10 h-10 mx-auto mb-3 opacity-50" />
+          <p className="font-medium">No platforms yet</p>
+          <p className="text-sm mt-1">Create your first platform below</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+          {platforms.map((platform) => (
+            <div
+              key={platform.id}
+              className="bg-white border border-gray-200 rounded-lg p-5 flex flex-col justify-between hover:shadow-sm transition-shadow"
+            >
+              <div>
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <h3 className="font-bold text-gray-900 leading-tight">{platform.name}</h3>
+                  <span className="text-xs bg-brand-100 text-brand-800 font-medium px-2 py-0.5 rounded-full whitespace-nowrap">
+                    #{platform.id}
+                  </span>
+                </div>
+                {platform.description && (
+                  <p className="text-sm text-gray-500 leading-relaxed mb-3">{platform.description}</p>
+                )}
+                <p className="text-xs text-gray-400">
+                  Created {formatDate(platform.created_at)}
+                </p>
+              </div>
+              <div className="mt-4">
+                <button
+                  onClick={() => navigate(`/platforms/${platform.id}`)}
+                  className="flex items-center gap-2 text-sm text-brand-600 hover:text-brand-700 font-medium"
+                >
+                  <Eye className="w-4 h-4" />
+                  View Firms
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Create platform form */}
+      <div className="bg-white border border-gray-200 rounded-lg p-5 max-w-lg">
+        <h2 className="text-sm font-semibold text-gray-700 mb-4">Create New Platform</h2>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Platform Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. RIA Aggregator Network"
+              className="w-full text-sm border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-brand-600 focus:border-brand-600 outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Description (optional)
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Brief description of this platform..."
+              rows={3}
+              className="w-full text-sm border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-brand-600 outline-none resize-none"
+            />
+          </div>
+          <button
+            onClick={() => createMutation.mutate()}
+            disabled={!name.trim() || createMutation.isPending}
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
+          >
+            {createMutation.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Plus className="w-4 h-4" />
+            )}
+            Create Platform
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
