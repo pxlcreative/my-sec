@@ -121,7 +121,8 @@ export default function Export() {
         if (jobResult.file_path) {
           window.open(`/api/export/jobs/${jobResult.id}/download`, '_blank')
         }
-        addToast('Export ready', 'success')
+        const count = jobResult.row_count ?? 0
+        addToast(`Export complete — ${count.toLocaleString()} record${count !== 1 ? 's' : ''} exported`, 'success')
       }
     },
     onError: () => addToast('Export failed', 'error'),

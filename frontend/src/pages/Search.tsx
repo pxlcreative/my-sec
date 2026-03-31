@@ -9,7 +9,7 @@ import {
   createColumnHelper,
   type SortingState,
 } from '@tanstack/react-table'
-import { Share2, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { Share2, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, Database } from 'lucide-react'
 import { searchFirms, getPlatforms } from '../api/client'
 import { SkeletonTable } from '../components/Skeleton'
 import { StatusBadge } from '../components/StatusBadge'
@@ -315,6 +315,24 @@ export default function Search() {
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
             Failed to load firms. Please try again.
           </div>
+        ) : data && data.total === 0 && !debouncedQ && !state && !aumMin && !aumMax && !regStatus && platformIds.length === 0 ? (
+          /* No data loaded yet — distinct from "no results for a query" */
+          <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
+            <Database className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+            <h2 className="text-lg font-semibold text-gray-700 mb-2">No firms loaded yet</h2>
+            <p className="text-sm text-gray-500 max-w-sm mx-auto mb-4">
+              Load SEC data to get started. Run{' '}
+              <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono">make load-data</code>{' '}
+              from the project root, or see the README for step-by-step instructions.
+            </p>
+            <a
+              href="https://github.com/anthropics/claude-code"
+              className="inline-flex items-center gap-1 text-sm text-brand-600 hover:text-brand-700 font-medium"
+              onClick={(e) => { e.preventDefault(); window.open('/README.md', '_blank') }}
+            >
+              View Setup Guide →
+            </a>
+          </div>
         ) : (
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
@@ -357,8 +375,17 @@ export default function Search() {
                 <tbody className="divide-y divide-gray-100">
                   {table.getRowModel().rows.length === 0 ? (
                     <tr>
-                      <td colSpan={columns.length} className="px-4 py-8 text-center text-gray-400">
-                        No firms found
+                      <td colSpan={columns.length} className="px-4 py-10 text-center">
+                        <p className="text-gray-500 mb-2">No firms match your search</p>
+                        <button
+                          onClick={() => {
+                            setInputValue('')
+                            setSearchParams(new URLSearchParams())
+                          }}
+                          className="text-sm text-brand-600 hover:text-brand-700 font-medium"
+                        >
+                          Clear filters
+                        </button>
                       </td>
                     </tr>
                   ) : (
@@ -380,8 +407,8 @@ export default function Search() {
               </table>
             </div>
 
-            {/* Pagination */}
-            {data && data.total > data.page_size && (
+            {/* Pagination — only shown when there are multiple pages */}
+            {data && data.total > 0 && data.total > data.page_size && (
               <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
                 <p className="text-sm text-gray-500">
                   Page {page} of {totalPages} ({data.total.toLocaleString()} total)

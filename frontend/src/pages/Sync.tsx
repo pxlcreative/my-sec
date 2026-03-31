@@ -116,15 +116,18 @@ export default function Sync() {
             Run Sync
           </button>
         </div>
-        {latest && (
-          <div className="flex items-center gap-2 mt-3 text-sm text-gray-500">
-            <StatusIcon status={latest.status} />
-            <span>
-              Last job: <span className="font-medium">{latest.status}</span>
-              {latest.completed_at && ` · completed ${formatDate(latest.completed_at)}`}
+        <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-sm text-gray-500">
+          <span>
+            Last sync:{' '}
+            <span className="font-medium text-gray-700">
+              {latest ? formatDate(latest.completed_at ?? latest.started_at) : 'Never'}
             </span>
-          </div>
-        )}
+          </span>
+          <span>
+            Next scheduled:{' '}
+            <span className="font-medium text-gray-700">2nd of each month at 06:00 UTC</span>
+          </span>
+        </div>
       </div>
 
       {isLoading ? (

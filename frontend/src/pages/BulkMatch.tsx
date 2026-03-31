@@ -416,6 +416,14 @@ export default function BulkMatch() {
               <h2 className="text-lg font-semibold text-gray-800">Match Results</h2>
             </div>
 
+            {/* No-data warning banner */}
+            {matchResults.stats.confirmed === 0 && matchResults.stats.total > 0 && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3 text-sm text-yellow-800">
+                <span className="font-medium">0 confirmed matches</span> — this may indicate the firm database hasn't been loaded yet.{' '}
+                Run <code className="bg-yellow-100 px-1 py-0.5 rounded text-xs font-mono">make load-data</code> to import SEC data, or see the README for instructions.
+              </div>
+            )}
+
             {/* Stats bar */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               {[
