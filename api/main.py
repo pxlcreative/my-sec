@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from config import settings
 from routes import firms, match, sync
+from routes.export import router as export_router
 from routes.platforms import firm_platforms_router, match_router as platform_match_router, platforms_router
 
 logging.basicConfig(level=settings.log_level.upper())
@@ -53,6 +54,7 @@ app.include_router(match.router, prefix="/api")
 app.include_router(platforms_router, prefix="/api")
 app.include_router(firm_platforms_router, prefix="/api")
 app.include_router(platform_match_router, prefix="/api")
+app.include_router(export_router, prefix="/api")
 
 
 # ---------------------------------------------------------------------------
