@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from config import settings
 from routes import firms, match, sync
+from routes.platforms import firm_platforms_router, match_router as platform_match_router, platforms_router
 
 logging.basicConfig(level=settings.log_level.upper())
 logger = logging.getLogger(__name__)
@@ -49,6 +50,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 app.include_router(firms.router, prefix="/api")
 app.include_router(sync.router, prefix="/api")
 app.include_router(match.router, prefix="/api")
+app.include_router(platforms_router, prefix="/api")
+app.include_router(firm_platforms_router, prefix="/api")
+app.include_router(platform_match_router, prefix="/api")
 
 
 # ---------------------------------------------------------------------------

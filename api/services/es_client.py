@@ -85,6 +85,7 @@ FIRMS_MAPPING: dict[str, Any] = {
             "main_state":          {"type": "keyword"},
             "main_zip":            {"type": "keyword"},
             "registration_status": {"type": "keyword"},
+            "platforms":           {"type": "keyword"},
         }
     },
     "settings": {
