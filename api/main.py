@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from config import settings
 from routes import firms, match, sync
+from routes.alerts import router as alerts_router
 from routes.export import router as export_router
 from routes.platforms import firm_platforms_router, match_router as platform_match_router, platforms_router
 
@@ -55,6 +56,7 @@ app.include_router(platforms_router, prefix="/api")
 app.include_router(firm_platforms_router, prefix="/api")
 app.include_router(platform_match_router, prefix="/api")
 app.include_router(export_router, prefix="/api")
+app.include_router(alerts_router, prefix="/api")
 
 
 # ---------------------------------------------------------------------------

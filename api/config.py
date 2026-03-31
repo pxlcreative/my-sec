@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     cors_origins: str = "*"  # comma-separated origins, or "*" for all
 
+    # SMTP alert delivery
+    smtp_host: str = "localhost"
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_pass: str | None = None
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

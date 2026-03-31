@@ -75,6 +75,14 @@ def refresh_firm(crd: int, db: Session) -> list[dict]:
 
         # Re-index to ES (best-effort)
         _reindex_firm(crd, new_fields, db)
+
+        # Evaluate alert rules (best-effort)
+        if diffs:
+            try:
+                from services.alert_service import evaluate_alerts_for_firm
+                evaluate_alerts_for_firm(crd, diffs, db)
+            except Exception as exc:
+                log.warning("refresh_firm(%d): alert evaluation failed (non-fatal): %s", crd, exc)
     else:
         log.debug("refresh_firm(%d): no change (hash=%s)", crd, new_hash[:12])
         db.commit()  # commit the AUM history row added below
