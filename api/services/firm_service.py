@@ -231,6 +231,23 @@ def get_aum_history(crd: int, session: Session) -> list[FirmAumHistory]:
 
 
 # ---------------------------------------------------------------------------
+# get_aum_annual
+# ---------------------------------------------------------------------------
+
+def get_aum_annual(crd: int, session: Session) -> list[dict]:
+    """Return rows from firm_aum_annual for *crd*, ordered by year ASC."""
+    get_firm(crd, session)  # raises 404 if missing
+    rows = session.execute(
+        text(
+            "SELECT year, peak_aum, trough_aum, latest_aum_for_year, filing_count "
+            "FROM firm_aum_annual WHERE crd_number = :crd ORDER BY year"
+        ),
+        {"crd": crd},
+    ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
 # get_latest_brochure
 # ---------------------------------------------------------------------------
 

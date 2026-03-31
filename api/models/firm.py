@@ -42,6 +42,8 @@ class Firm(Base):
     org_type: Mapped[str | None] = mapped_column(Text)
     raw_adv: Mapped[dict | None] = mapped_column(JSONB)
     last_filing_date: Mapped[datetime.date | None] = mapped_column(Date)
+    aum_2023: Mapped[int | None] = mapped_column(BigInteger)
+    aum_2024: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime.datetime | None] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime.datetime | None] = mapped_column(server_default=func.now(), onupdate=func.now())
 

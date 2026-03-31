@@ -40,6 +40,8 @@ class FirmDetail(FirmSummary):
     website: str | None
     org_type: str | None
     fiscal_year_end: str | None
+    aum_2023: int | None
+    aum_2024: int | None
     created_at: datetime.datetime | None
     updated_at: datetime.datetime | None
     # Only included when ?include_raw_adv=true
@@ -67,6 +69,20 @@ class AumHistoryPoint(BaseModel):
     aum_non_discretionary: int | None
     num_accounts: int | None
     source: str
+
+
+class AumAnnualSummary(BaseModel):
+    year: int
+    peak_aum: int | None
+    trough_aum: int | None
+    latest_aum_for_year: int | None
+    filing_count: int
+
+
+class AumHistoryResponse(BaseModel):
+    crd_number: int
+    annual: list[AumAnnualSummary]
+    filings: list[AumHistoryPoint]
 
 
 class ChangeRecord(BaseModel):

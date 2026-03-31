@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 
 from db import get_db
 from schemas.firm import (
+    AumAnnualSummary,
     AumHistoryPoint,
+    AumHistoryResponse,
     BrochureMeta,
     ChangeRecord,
     FirmDetail,
@@ -138,6 +140,8 @@ def get_firm(
             org_type=firm.org_type,
             fiscal_year_end=firm.fiscal_year_end,
             last_filing_date=firm.last_filing_date,
+            aum_2023=firm.aum_2023,
+            aum_2024=firm.aum_2024,
             created_at=firm.created_at,
             updated_at=firm.updated_at,
             platforms=platform_map.get(crd, []),
@@ -177,14 +181,19 @@ def get_firm_history(
 # GET /api/firms/{crd}/aum-history
 # ---------------------------------------------------------------------------
 
-@router.get("/{crd}/aum-history", response_model=list[AumHistoryPoint])
+@router.get("/{crd}/aum-history", response_model=AumHistoryResponse)
 def get_aum_history(
     crd: int,
     db: Session = Depends(get_db),
-) -> list[AumHistoryPoint]:
+) -> AumHistoryResponse:
     try:
-        records = firm_service.get_aum_history(crd, db)
-        return [AumHistoryPoint.model_validate(r) for r in records]
+        filings = firm_service.get_aum_history(crd, db)
+        annual_rows = firm_service.get_aum_annual(crd, db)
+        return AumHistoryResponse(
+            crd_number=crd,
+            annual=[AumAnnualSummary(**r) for r in annual_rows],
+            filings=[AumHistoryPoint.model_validate(r) for r in filings],
+        )
     except HTTPException:
         raise
     except Exception:
