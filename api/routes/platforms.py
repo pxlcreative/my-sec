@@ -28,7 +28,7 @@ match_router = APIRouter(prefix="/match", tags=["platforms"])
 # GET /api/platforms
 # ---------------------------------------------------------------------------
 
-@platforms_router.get("", response_model=list[PlatformOut])
+@platforms_router.get("", response_model=list[PlatformOut], summary="List all platforms")
 def list_platforms(db: Session = Depends(get_db)) -> list[PlatformOut]:
     try:
         rows = platform_service.list_platforms(db)
@@ -44,7 +44,7 @@ def list_platforms(db: Session = Depends(get_db)) -> list[PlatformOut]:
 # POST /api/platforms
 # ---------------------------------------------------------------------------
 
-@platforms_router.post("", response_model=PlatformOut, status_code=201)
+@platforms_router.post("", response_model=PlatformOut, status_code=201, summary="Create a platform")
 def create_platform(
     body: PlatformCreate, db: Session = Depends(get_db)
 ) -> PlatformOut:

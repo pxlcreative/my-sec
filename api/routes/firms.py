@@ -45,7 +45,12 @@ def _to_summary(firm, platform_names: list[str]) -> FirmSummary:
 # GET /api/firms
 # ---------------------------------------------------------------------------
 
-@router.get("", response_model=PaginatedFirms)
+@router.get(
+    "",
+    response_model=PaginatedFirms,
+    summary="List and filter firms",
+    description="Returns a paginated list of firms. Supports filtering by state, AUM range, registration status, platform, and full-text search.",
+)
 def list_firms(
     state: str | None = Query(None, description="2-letter state code"),
     aum_min: int | None = Query(None, ge=0),
@@ -82,7 +87,12 @@ def list_firms(
 # GET /api/firms/search
 # ---------------------------------------------------------------------------
 
-@router.get("/search", response_model=PaginatedFirms)
+@router.get(
+    "/search",
+    response_model=PaginatedFirms,
+    summary="Full-text firm search",
+    description="Elasticsearch-backed full-text search over firm names. Falls back to PostgreSQL GIN index if ES is unavailable.",
+)
 def search_firms(
     q: str = Query(..., min_length=1, description="Full-text search query"),
     page: int = Query(1, ge=1),
@@ -106,7 +116,12 @@ def search_firms(
 # GET /api/firms/{crd}
 # ---------------------------------------------------------------------------
 
-@router.get("/{crd}", response_model=FirmDetail)
+@router.get(
+    "/{crd}",
+    response_model=FirmDetail,
+    summary="Get firm detail",
+    description="Returns full detail for a single firm by CRD number. Returns 404 if the CRD is not in the database.",
+)
 def get_firm(
     crd: int,
     include_raw_adv: bool = Query(False, description="Include full raw ADV JSON"),
@@ -159,7 +174,12 @@ def get_firm(
 # GET /api/firms/{crd}/history
 # ---------------------------------------------------------------------------
 
-@router.get("/{crd}/history", response_model=FirmHistoryResponse)
+@router.get(
+    "/{crd}/history",
+    response_model=FirmHistoryResponse,
+    summary="Firm change history",
+    description="Returns all field-level changes detected for this firm across refresh cycles, ordered by detection time descending.",
+)
 def get_firm_history(
     crd: int,
     db: Session = Depends(get_db),
@@ -181,7 +201,12 @@ def get_firm_history(
 # GET /api/firms/{crd}/aum-history
 # ---------------------------------------------------------------------------
 
-@router.get("/{crd}/aum-history", response_model=AumHistoryResponse)
+@router.get(
+    "/{crd}/aum-history",
+    response_model=AumHistoryResponse,
+    summary="AUM history for a firm",
+    description="Returns per-filing AUM data points and an annual summary (peak, trough, latest) derived from the firm_aum_annual view.",
+)
 def get_aum_history(
     crd: int,
     db: Session = Depends(get_db),

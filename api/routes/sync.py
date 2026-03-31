@@ -20,7 +20,12 @@ _JOB_TYPES = ["bulk_csv", "monthly_pdf", "live_incremental", "aum_history"]
 # GET /api/sync/status
 # ---------------------------------------------------------------------------
 
-@router.get("/status", response_model=list[SyncStatusEntry])
+@router.get(
+    "/status",
+    response_model=list[SyncStatusEntry],
+    summary="Sync job status",
+    description="Returns the most recent SyncJob record per job type. Returns [] when no jobs have run yet.",
+)
 def sync_status(db: Session = Depends(get_db)) -> list[SyncStatusEntry]:
     """Return the most recent SyncJob record per job_type."""
     try:

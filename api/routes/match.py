@@ -31,6 +31,8 @@ _MAX_RECORDS = 10_000
     "/bulk",
     response_model=BulkMatchSyncResponse | BulkMatchAsyncResponse,
     status_code=200,
+    summary="Bulk fuzzy CRD match",
+    description="Match a list of firm names/addresses to CRD numbers using Elasticsearch + rapidfuzz. ≤100 records run synchronously; >100 are queued as a Celery job.",
 )
 def bulk_match(
     body: BulkMatchRequest,
@@ -98,7 +100,12 @@ def bulk_match(
 # GET /api/match/jobs/{job_id}
 # ---------------------------------------------------------------------------
 
-@router.get("/jobs/{job_id}", response_model=MatchJobStatus)
+@router.get(
+    "/jobs/{job_id}",
+    response_model=MatchJobStatus,
+    summary="Get match job status",
+    description="Poll this endpoint after POSTing >100 records. Returns status and results once complete.",
+)
 def get_match_job(job_id: int, db: Session = Depends(get_db)) -> MatchJobStatus:
     job: SyncJob | None = db.get(SyncJob, job_id)
     if job is None or job.job_type != "bulk_match":
