@@ -6,7 +6,7 @@ app = Celery(
     "sec_adv",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["celery_tasks.tasks"],
+    include=["celery_tasks.tasks", "celery_tasks.match_tasks"],
 )
 
 app.conf.update(

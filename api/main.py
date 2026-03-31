@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from config import settings
-from routes import firms, sync
+from routes import firms, match, sync
 
 logging.basicConfig(level=settings.log_level.upper())
 logger = logging.getLogger(__name__)
@@ -48,6 +48,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 # ---------------------------------------------------------------------------
 app.include_router(firms.router, prefix="/api")
 app.include_router(sync.router, prefix="/api")
+app.include_router(match.router, prefix="/api")
 
 
 # ---------------------------------------------------------------------------
