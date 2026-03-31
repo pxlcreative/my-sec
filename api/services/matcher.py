@@ -16,11 +16,12 @@ log = logging.getLogger(__name__)
 # so matcher can be used independently of the ES module)
 # ---------------------------------------------------------------------------
 
+# Only strip terminal legal-structure suffixes — NOT business descriptor words
+# (capital, management, group, etc.) which are part of a firm's identity.
+# The $ anchor ensures we only remove from the end of the string.
 _SUFFIX_RE = re.compile(
-    r"\b(llc|lp|l\.p\.|l\.l\.c\.|inc|corp|corporation|"
-    r"ltd|limited|co|company|plc|llp|pllc|pa|pc|na|"
-    r"associates|advisors|advisers|group|partners|management|"
-    r"capital|financial|investments?|services?|solutions?)\b\.?",
+    r"\s*\b(llc|lp|l\.p\.|l\.l\.c\.|inc|incorporated|corp|corporation|"
+    r"ltd|limited|co|company|plc|llp|pllc|pa|pc|na)\b\.?\s*$",
     re.IGNORECASE,
 )
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -29,8 +30,9 @@ _PUNCT_RE = re.compile(r"[^\w\s]")
 
 def normalize_name(name: str | None) -> str:
     """
-    Strip common legal suffixes/business words, remove punctuation,
-    collapse whitespace, lowercase.
+    Strip terminal legal-structure suffixes (LLC, LP, Inc, Corp, Ltd…),
+    remove punctuation, collapse whitespace, lowercase.
+    Business descriptor words (Capital, Management, Group…) are preserved.
     """
     if not name:
         return ""
