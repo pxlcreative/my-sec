@@ -12,3 +12,4 @@ from models.alert import AlertEvent, AlertRule  # noqa: F401
 from models.sync_job import SyncJob  # noqa: F401
 from models.export_job import ExportJob  # noqa: F401
 from models.api_key import ApiKey  # noqa: F401
+from models.disclosures import FirmDisclosuresSummary  # noqa: F401
