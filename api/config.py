@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     secret_key: str = "change-me"
     data_dir: str = "/data"
     log_level: str = "INFO"
+    cors_origins: str = "*"  # comma-separated origins, or "*" for all
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
