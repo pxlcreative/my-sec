@@ -1,0 +1,29 @@
+# Web framework
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+
+# Database
+sqlalchemy==2.0.30
+alembic==1.13.1
+psycopg2-binary==2.9.9
+
+# Search
+elasticsearch==8.13.0
+
+# Task queue
+celery==5.4.0
+redis==5.0.4
+
+# HTTP
+requests==2.32.2
+
+# Data processing
+rapidfuzz==3.9.3
+openpyxl>=3.1,<4.0
+
+# File uploads / multipart
+python-multipart==0.0.9
+
+# Config
+python-dotenv==1.0.1
+pydantic-settings==2.2.1
