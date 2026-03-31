@@ -263,7 +263,7 @@ def brochure_already_stored(version_id: int, db_session: Session) -> bool:
 # 6. Orchestrator
 # ---------------------------------------------------------------------------
 
-def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> None:
+def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> set[int]:
     """
     Full pipeline for one month:
       discover ZIPs → download each → load mapping CSV → for each row:
@@ -291,7 +291,7 @@ def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> None:
     zip_urls = discover_month_zip_urls(month_str)
     if not zip_urls:
         _commit_progress(0, 0, f"No ZIPs found for {month_str}")
-        return
+        return set()
 
     ZIPS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -302,6 +302,7 @@ def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> None:
 
     total_processed = 0
     total_stored    = 0
+    new_brochure_crds: set[int] = set()
 
     for zip_url in zip_urls:
         try:
@@ -370,6 +371,7 @@ def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> None:
                 continue
 
             total_stored += 1
+            new_brochure_crds.add(crd)
             log.info(
                 "sync_month: stored version_id=%d crd=%d path=%s size=%d bytes",
                 version_id, crd, local_path, size_bytes,
@@ -381,6 +383,7 @@ def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> None:
 
     _commit_progress(total_processed, total_stored)
     log.info(
-        "sync_month %s complete: processed=%d stored=%d",
-        month_str, total_processed, total_stored,
+        "sync_month %s complete: processed=%d stored=%d new_crds=%d",
+        month_str, total_processed, total_stored, len(new_brochure_crds),
     )
+    return new_brochure_crds

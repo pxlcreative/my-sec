@@ -43,7 +43,7 @@ def monthly_pdf_sync(self, month_str: str | None = None) -> dict:
         job_id = job.id
 
         try:
-            sync_month(target_month, session, job_id)
+            new_crds = sync_month(target_month, session, job_id)
 
             job = session.get(SyncJob, job_id)
             job.status = "complete"
@@ -55,8 +55,15 @@ def monthly_pdf_sync(self, month_str: str | None = None) -> dict:
                 "status": "complete",
                 "processed": job.firms_processed,
                 "stored": job.firms_updated,
+                "refreshes_enqueued": len(new_crds),
             }
             log.info("monthly_pdf_sync %s: %s", target_month, result)
+
+            # Enqueue live IAPD refresh for every firm that received a new brochure
+            if new_crds:
+                from celery_tasks.refresh_tasks import refresh_firms_with_new_brochures
+                refresh_firms_with_new_brochures.delay(list(new_crds))
+
             return result
 
         except Exception as exc:

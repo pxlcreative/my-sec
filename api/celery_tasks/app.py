@@ -12,6 +12,7 @@ app = Celery(
         "celery_tasks.match_tasks",
         "celery_tasks.export_tasks",
         "celery_tasks.monthly_sync",
+        "celery_tasks.refresh_tasks",
     ],
 )
 
