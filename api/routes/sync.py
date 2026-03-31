@@ -91,6 +91,23 @@ def _run_reindex() -> None:
         db.close()
 
 
+@router.post("/trigger", status_code=202)
+def trigger_monthly_sync(month_str: str | None = None) -> dict:
+    """
+    Enqueue an immediate monthly PDF sync Celery task.
+    Optional *month_str* query param (format: "YYYY-MM"); defaults to the previous month.
+    """
+    from celery_tasks.monthly_sync import monthly_pdf_sync
+
+    task = monthly_pdf_sync.delay(month_str)
+    return {
+        "status": "accepted",
+        "task_id": task.id,
+        "month": month_str or "previous month",
+        "message": "Monthly PDF sync enqueued. Check /api/sync/status for progress.",
+    }
+
+
 @router.post("/reindex", status_code=202)
 def trigger_reindex(background_tasks: BackgroundTasks) -> dict:
     """
