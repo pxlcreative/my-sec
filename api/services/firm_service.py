@@ -124,19 +124,16 @@ def list_firms(
 
 
 # ---------------------------------------------------------------------------
-# search_firms  (GIN full-text)
+# search_firms  (Elasticsearch primary, Postgres GIN fallback)
 # ---------------------------------------------------------------------------
 
-def search_firms(
+def _search_firms_postgres(
     q: str,
     page: int,
     page_size: int,
     session: Session,
 ) -> tuple[int, list[Firm]]:
-    """
-    Full-text search over legal_name and business_name using the GIN index.
-    Falls back to ILIKE if the query produces no tsquery tokens.
-    """
+    """Postgres GIN full-text search (used when ES is unavailable)."""
     q = q.strip()
     tsquery = func.plainto_tsquery("english", q)
     ts_filter = or_(
@@ -145,28 +142,61 @@ def search_firms(
             "english", func.coalesce(Firm.business_name, "")
         ).op("@@")(tsquery),
     )
-    # ILIKE fallback for short/stop-word queries
     like_filter = or_(
         Firm.legal_name.ilike(f"%{q}%"),
         Firm.business_name.ilike(f"%{q}%"),
     )
-    combined = or_(ts_filter, like_filter)
-
-    stmt = select(Firm).where(combined)
+    stmt = select(Firm).where(or_(ts_filter, like_filter))
     total: int = session.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-
     offset = (page - 1) * page_size
     firms = session.scalars(
         stmt.order_by(
-            func.ts_rank(
-                func.to_tsvector("english", Firm.legal_name), tsquery
-            ).desc()
+            func.ts_rank(func.to_tsvector("english", Firm.legal_name), tsquery).desc()
         )
         .offset(offset)
         .limit(page_size)
     ).all()
-
     return total, list(firms)
+
+
+def search_firms(
+    q: str,
+    page: int,
+    page_size: int,
+    session: Session,
+    city: str | None = None,
+    state: str | None = None,
+) -> tuple[int, list[Firm]]:
+    """
+    Primary: Elasticsearch fuzzy multi-match.
+    Fallback: Postgres GIN full-text + ILIKE when ES is unreachable.
+
+    Returns (total_count, Firm ORM objects in ES score order).
+    """
+    try:
+        from services.es_client import search_firms as es_search
+        # ES doesn't give a count, so we request enough results and paginate in Python.
+        es_size = page * page_size
+        hits = es_search(q, city=city, state=state, size=min(es_size, 500))
+        if not hits:
+            return 0, []
+
+        # Slice for the requested page
+        offset = (page - 1) * page_size
+        page_hits = hits[offset: offset + page_size]
+        crds = [h["crd_number"] for h in page_hits]
+
+        # Fetch full ORM objects, preserving ES score order
+        crd_to_firm: dict[int, Firm] = {
+            f.crd_number: f
+            for f in session.scalars(select(Firm).where(Firm.crd_number.in_(crds))).all()
+        }
+        firms = [crd_to_firm[c] for c in crds if c in crd_to_firm]
+        return len(hits), firms
+
+    except Exception as exc:
+        log.warning("Elasticsearch unavailable (%s), falling back to Postgres", exc)
+        return _search_firms_postgres(q, page, page_size, session)
 
 
 # ---------------------------------------------------------------------------
