@@ -224,3 +224,23 @@ def get_aum_history(
     except Exception:
         log.error("get_aum_history(%s) error\n%s", crd, traceback.format_exc())
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/{crd}/brochures",
+    response_model=list[BrochureMeta],
+    summary="Brochure list for a firm",
+)
+def get_firm_brochures(crd: int, db: Session = Depends(get_db)):
+    from models.brochure import AdvBrochure
+    from sqlalchemy import desc, select
+
+    # Raises 404 if firm not found (same as get_firm)
+    firm_service.get_firm(crd, db)
+
+    brochures = list(db.scalars(
+        select(AdvBrochure)
+        .where(AdvBrochure.crd_number == crd)
+        .order_by(desc(AdvBrochure.date_submitted))
+    ).all())
+    return [BrochureMeta.model_validate(b) for b in brochures]
