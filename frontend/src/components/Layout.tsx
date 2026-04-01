@@ -1,16 +1,17 @@
+import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import {
-  Home,
   Building2,
   GitMerge,
   Tag,
   Bell,
   Download,
   RefreshCw,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 
 const navItems = [
-  { label: 'Search', icon: Home, to: '/', end: true },
   { label: 'Firm Search', icon: Building2, to: '/', end: true },
   { label: 'Bulk Match', icon: GitMerge, to: '/match' },
   { label: 'Platforms', icon: Tag, to: '/platforms' },
@@ -20,14 +21,27 @@ const navItems = [
 ]
 
 export function Layout() {
+  const [collapsed, setCollapsed] = useState(false)
+
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
       {/* Sidebar */}
-      <aside className="w-60 flex-shrink-0 bg-brand-900 flex flex-col h-full">
+      <aside className={`${collapsed ? 'w-14' : 'w-60'} flex-shrink-0 bg-brand-900 flex flex-col h-full transition-all duration-200`}>
         {/* Logo */}
-        <div className="px-4 py-5 border-b border-brand-800">
-          <p className="text-white font-semibold text-sm leading-tight">MySEC</p>
-          <p className="text-blue-300 text-xs mt-0.5">Database & Analytics</p>
+        <div className={`px-4 py-5 border-b border-brand-800 flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
+          {!collapsed && (
+            <div>
+              <p className="text-white font-semibold text-sm leading-tight">MySEC</p>
+              <p className="text-blue-300 text-xs mt-0.5">Database & Analytics</p>
+            </div>
+          )}
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="text-blue-300 hover:text-white transition-colors flex-shrink-0"
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          </button>
         </div>
 
         {/* Nav */}
@@ -39,8 +53,11 @@ export function Layout() {
                 key={`${item.label}-${item.to}`}
                 to={item.to}
                 end={item.end}
+                title={collapsed ? item.label : undefined}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    collapsed ? 'justify-center' : ''
+                  } ${
                     isActive
                       ? 'bg-brand-900 text-white ring-1 ring-white/20'
                       : 'text-blue-200 hover:text-white hover:bg-white/10'
@@ -48,17 +65,19 @@ export function Layout() {
                 }
               >
                 <Icon className="w-4 h-4 flex-shrink-0" />
-                {item.label}
+                {!collapsed && item.label}
               </NavLink>
             )
           })}
         </nav>
 
         {/* Footer */}
-        <div className="px-4 py-3 border-t border-brand-800">
-          <p className="text-blue-300 text-xs">MySEC</p>
-          <p className="text-blue-400 text-xs mt-0.5">v0.1.0</p>
-        </div>
+        {!collapsed && (
+          <div className="px-4 py-3 border-t border-brand-800">
+            <p className="text-blue-300 text-xs">MySEC</p>
+            <p className="text-blue-400 text-xs mt-0.5">v0.1.0</p>
+          </div>
+        )}
       </aside>
 
       {/* Main content */}

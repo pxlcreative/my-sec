@@ -17,6 +17,7 @@ import type {
   AlertEventOut,
   AlertTestResponse,
   SyncStatusEntry,
+  CronScheduleOut,
 } from '../types'
 
 const api = axios.create({
@@ -172,6 +173,25 @@ export async function getSyncStatus(): Promise<SyncStatusEntry[]> {
 export async function triggerSync(monthStr?: string): Promise<unknown> {
   const params = monthStr ? { month_str: monthStr } : {}
   const response = await api.post('/sync/trigger', null, { params })
+  return response.data
+}
+
+// Schedules
+export async function getSchedules(): Promise<CronScheduleOut[]> {
+  const response = await api.get('/schedules')
+  return response.data
+}
+
+export async function patchSchedule(
+  id: number,
+  data: Partial<CronScheduleOut>
+): Promise<CronScheduleOut> {
+  const response = await api.patch(`/schedules/${id}`, data)
+  return response.data
+}
+
+export async function triggerSchedule(id: number): Promise<{ status: string; task_id: string }> {
+  const response = await api.post(`/schedules/${id}/trigger`)
   return response.data
 }
 

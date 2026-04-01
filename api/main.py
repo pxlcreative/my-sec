@@ -10,6 +10,7 @@ from routes.alerts import router as alerts_router
 from routes.excel import router as excel_router
 from routes.export import router as export_router
 from routes.external import router as external_router
+from routes.schedules import router as schedules_router
 from routes.platforms import firm_platforms_router, match_router as platform_match_router, platforms_router
 
 logging.basicConfig(level=settings.log_level.upper())
@@ -61,6 +62,7 @@ app.include_router(export_router, prefix="/api")
 app.include_router(alerts_router, prefix="/api")
 app.include_router(excel_router, prefix="/api")
 app.include_router(external_router, prefix="/api")
+app.include_router(schedules_router, prefix="/api")
 
 
 # ---------------------------------------------------------------------------

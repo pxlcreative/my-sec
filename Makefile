@@ -1,4 +1,4 @@
-.PHONY: up down restart logs migrate seed load-data test reindex shell ps
+.PHONY: up down restart logs migrate seed seed-schedules load-data test reindex shell ps
 
 up:
 	docker compose up -d
@@ -17,6 +17,10 @@ migrate:
 
 seed:
 	docker compose exec api python scripts/seed_platforms.py
+	docker compose exec api python scripts/seed_schedules.py
+
+seed-schedules:
+	docker compose exec api python scripts/seed_schedules.py
 
 load-data:
 	docker compose exec api python scripts/load_bulk_csv.py

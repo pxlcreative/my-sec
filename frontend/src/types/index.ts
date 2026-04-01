@@ -174,6 +174,20 @@ export interface SyncStatusEntry {
   created_at: string | null
 }
 
+export interface CronScheduleOut {
+  id: number
+  name: string
+  task: string
+  description: string | null
+  minute: string
+  hour: string
+  day_of_month: string
+  month_of_year: string
+  day_of_week: string
+  enabled: boolean
+  updated_at: string
+}
+
 export interface MatchResult {
   id: string | number | null
   input_name: string
