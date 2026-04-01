@@ -1,3 +1,11 @@
+import sys
+
+# Ensure the volume-mounted source always takes precedence over the
+# stale copy baked into the Docker image at /app. Forked pool workers
+# may run with cwd=/app, which would otherwise shadow /project/api.
+if "/project/api" not in sys.path:
+    sys.path.insert(0, "/project/api")
+
 from celery import Celery
 
 from config import settings
