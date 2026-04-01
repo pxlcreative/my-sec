@@ -18,10 +18,11 @@ def _prev_month_str() -> str:
 
 
 @app.task(bind=True, name="monthly_sync.monthly_pdf_sync", max_retries=1)
-def monthly_pdf_sync(self, month_str: str | None = None) -> dict:
+def monthly_pdf_sync(self, month_str: str | None = None, job_id: int | None = None) -> dict:
     """
     Download and store ADV Part 2 PDFs for *month_str* (defaults to previous month).
-    Creates a SyncJob record, delegates to pdf_sync_service.sync_month(), updates status.
+    If *job_id* is given (manual trigger), updates that pending record to running.
+    Otherwise creates a new SyncJob (Beat-scheduled runs).
     """
     from db import SessionLocal
     from models.sync_job import SyncJob
@@ -31,15 +32,21 @@ def monthly_pdf_sync(self, month_str: str | None = None) -> dict:
     log.info("monthly_pdf_sync starting for month=%s", target_month)
 
     with SessionLocal() as session:
-        job = SyncJob(
-            job_type="monthly_pdf",
-            status="running",
-            source_url=f"sec.gov/foia adv-brochures-{target_month}",
-            started_at=datetime.now(timezone.utc),
-        )
-        session.add(job)
-        session.commit()
-        session.refresh(job)
+        if job_id:
+            job = session.get(SyncJob, job_id)
+            job.status = "running"
+            job.started_at = datetime.now(timezone.utc)
+            session.commit()
+        else:
+            job = SyncJob(
+                job_type="monthly_pdf",
+                status="running",
+                source_url=f"sec.gov/foia adv-brochures-{target_month}",
+                started_at=datetime.now(timezone.utc),
+            )
+            session.add(job)
+            session.commit()
+            session.refresh(job)
         job_id = job.id
 
         try:

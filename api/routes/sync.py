@@ -1,7 +1,8 @@
 import logging
 import traceback
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -96,19 +97,86 @@ def _run_reindex() -> None:
         db.close()
 
 
+def _prev_month_str() -> str:
+    now = datetime.now(timezone.utc)
+    if now.month == 1:
+        return f"{now.year - 1}-12"
+    return f"{now.year}-{now.month - 1:02d}"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/sync/jobs  — full job history
+# GET /api/sync/jobs/{job_id}  — single job detail (includes results/log)
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/jobs",
+    response_model=list[SyncStatusEntry],
+    summary="Sync job history",
+    description="Returns all sync jobs ordered by creation time descending.",
+)
+def list_sync_jobs(
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+) -> list[SyncStatusEntry]:
+    try:
+        jobs = db.scalars(
+            select(SyncJob).order_by(desc(SyncJob.created_at)).limit(limit)
+        ).all()
+        return [SyncStatusEntry.model_validate(j) for j in jobs]
+    except Exception:
+        log.error("list_sync_jobs error\n%s", traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/jobs/{job_id}",
+    response_model=SyncStatusEntry,
+    summary="Sync job detail",
+    description="Returns full detail for a single sync job, including the results/log field.",
+)
+def get_sync_job(job_id: int, db: Session = Depends(get_db)) -> SyncStatusEntry:
+    try:
+        job = db.get(SyncJob, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return SyncStatusEntry.model_validate(job)
+    except HTTPException:
+        raise
+    except Exception:
+        log.error("get_sync_job(%s) error\n%s", job_id, traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @router.post("/trigger", status_code=202)
-def trigger_monthly_sync(month_str: str | None = None) -> dict:
+def trigger_monthly_sync(
+    month_str: str | None = None,
+    db: Session = Depends(get_db),
+) -> dict:
     """
     Enqueue an immediate monthly PDF sync Celery task.
+    Creates a pending SyncJob immediately so the UI shows the job before the worker starts.
     Optional *month_str* query param (format: "YYYY-MM"); defaults to the previous month.
     """
     from celery_tasks.monthly_sync import monthly_pdf_sync
 
-    task = monthly_pdf_sync.delay(month_str)
+    target_month = month_str or _prev_month_str()
+
+    job = SyncJob(
+        job_type="monthly_pdf",
+        status="pending",
+        source_url=f"sec.gov/foia adv-brochures-{target_month}",
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    task = monthly_pdf_sync.delay(month_str, job_id=job.id)
     return {
         "status": "accepted",
         "task_id": task.id,
-        "month": month_str or "previous month",
+        "job_id": job.id,
+        "month": target_month,
         "message": "Monthly PDF sync enqueued. Check /api/sync/status for progress.",
     }
 
