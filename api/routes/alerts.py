@@ -95,12 +95,14 @@ def delete_rule(rule_id: int, db: DbDep = None):
 
 @router.get("/events", response_model=list[AlertEventOut])
 def list_events(
-    rule_id:     int | None  = Query(None),
-    crd_number:  int | None  = Query(None),
-    platform:    str | None  = Query(None, description="Filter by platform_name"),
-    since:       datetime | None = Query(None, description="ISO8601 datetime lower bound"),
-    until:       datetime | None = Query(None, description="ISO8601 datetime upper bound"),
-    limit:       int         = Query(100, ge=1, le=1000),
+    rule_id:         int | None  = Query(None),
+    crd_number:      int | None  = Query(None),
+    platform:        str | None  = Query(None, description="Filter by platform_name"),
+    delivery_status: str | None  = Query(None, description="Filter by delivery_status"),
+    since:           datetime | None = Query(None, description="ISO8601 datetime lower bound"),
+    until:           datetime | None = Query(None, description="ISO8601 datetime upper bound"),
+    limit:           int         = Query(500, ge=1, le=1000),
+    offset:          int         = Query(0, ge=0),
     db: DbDep = None,
 ):
     stmt = select(AlertEvent).order_by(desc(AlertEvent.fired_at))
@@ -111,12 +113,14 @@ def list_events(
         stmt = stmt.where(AlertEvent.crd_number == crd_number)
     if platform is not None:
         stmt = stmt.where(AlertEvent.platform_name == platform)
+    if delivery_status is not None:
+        stmt = stmt.where(AlertEvent.delivery_status == delivery_status)
     if since is not None:
         stmt = stmt.where(AlertEvent.fired_at >= since)
     if until is not None:
         stmt = stmt.where(AlertEvent.fired_at <= until)
 
-    return list(db.scalars(stmt.limit(limit)).all())
+    return list(db.scalars(stmt.offset(offset).limit(limit)).all())
 
 
 # ---------------------------------------------------------------------------
