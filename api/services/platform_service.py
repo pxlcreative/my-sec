@@ -66,6 +66,14 @@ def list_platforms(session: Session) -> list[PlatformDefinition]:
     ).all())
 
 
+def delete_platform(platform_id: int, session: Session) -> None:
+    platform = _require_platform(platform_id, session)
+    # Remove all firm-platform tags first to satisfy FK constraint
+    session.execute(delete(FirmPlatform).where(FirmPlatform.platform_id == platform_id))
+    session.delete(platform)
+    session.commit()
+
+
 def create_platform(
     name: str, description: str | None, session: Session
 ) -> PlatformDefinition:

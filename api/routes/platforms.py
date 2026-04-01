@@ -59,6 +59,21 @@ def create_platform(
 
 
 # ---------------------------------------------------------------------------
+# DELETE /api/platforms/{id}
+# ---------------------------------------------------------------------------
+
+@platforms_router.delete("/{platform_id}", status_code=204, summary="Delete a platform")
+def delete_platform(platform_id: int, db: Session = Depends(get_db)) -> None:
+    try:
+        platform_service.delete_platform(platform_id, db)
+    except HTTPException:
+        raise
+    except Exception:
+        log.error("delete_platform(%s) error\n%s", platform_id, traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ---------------------------------------------------------------------------
 # GET /api/platforms/{id}/firms
 # ---------------------------------------------------------------------------
 

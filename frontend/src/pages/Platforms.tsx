@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Tag, Eye, Loader2 } from 'lucide-react'
-import { getPlatforms, createPlatform } from '../api/client'
+import { Plus, Tag, Eye, Loader2, Trash2, X, Check } from 'lucide-react'
+import { getPlatforms, createPlatform, deletePlatform } from '../api/client'
 import { Skeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 import { formatDate } from '../utils'
@@ -14,10 +14,21 @@ export default function Platforms() {
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
 
   const { data: platforms, isLoading, error } = useQuery({
     queryKey: ['platforms'],
     queryFn: getPlatforms,
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deletePlatform(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['platforms'] })
+      addToast('Platform deleted', 'success')
+      setConfirmDeleteId(null)
+    },
+    onError: () => addToast('Failed to delete platform', 'error'),
   })
 
   const createMutation = useMutation({
@@ -74,9 +85,38 @@ export default function Platforms() {
               <div>
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <h3 className="font-bold text-gray-900 leading-tight">{platform.name}</h3>
-                  <span className="text-xs bg-brand-100 text-brand-800 font-medium px-2 py-0.5 rounded-full whitespace-nowrap">
-                    #{platform.id}
-                  </span>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <span className="text-xs bg-brand-100 text-brand-800 font-medium px-2 py-0.5 rounded-full whitespace-nowrap">
+                      #{platform.id}
+                    </span>
+                    {confirmDeleteId === platform.id ? (
+                      <>
+                        <button
+                          onClick={() => deleteMutation.mutate(platform.id)}
+                          disabled={deleteMutation.isPending}
+                          className="p-1 rounded text-red-600 hover:bg-red-50 disabled:opacity-50"
+                          title="Confirm delete"
+                        >
+                          {deleteMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="p-1 rounded text-gray-400 hover:bg-gray-100"
+                          title="Cancel"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(platform.id)}
+                        className="p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50"
+                        title="Delete platform"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {platform.description && (
                   <p className="text-sm text-gray-500 leading-relaxed mb-3">{platform.description}</p>

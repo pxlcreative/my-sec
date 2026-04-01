@@ -70,6 +70,10 @@ export async function createPlatform(data: {
   return response.data
 }
 
+export async function deletePlatform(id: number): Promise<void> {
+  await api.delete(`/platforms/${id}`)
+}
+
 export async function getPlatformFirms(id: number): Promise<FirmSummary[]> {
   const response = await api.get(`/platforms/${id}/firms`)
   return response.data
