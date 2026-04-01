@@ -10,6 +10,7 @@ import PlatformDetail from './pages/PlatformDetail'
 import Alerts from './pages/Alerts'
 import Export from './pages/Export'
 import Sync from './pages/Sync'
+import Settings from './pages/Settings'
 
 export default function App() {
   return (
@@ -77,6 +78,14 @@ export default function App() {
             element={
               <ErrorBoundary>
                 <Sync />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ErrorBoundary>
+                <Settings />
               </ErrorBoundary>
             }
           />

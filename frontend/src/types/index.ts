@@ -237,3 +237,22 @@ export interface MatchJobStatus {
   error_message: string | null
   results: BulkMatchSyncResponse | null
 }
+
+export interface StorageSettingsOut {
+  id: number
+  backend: 'local' | 's3' | 'azure'
+  s3_bucket: string | null
+  s3_region: string | null
+  s3_access_key_id: string | null
+  s3_secret_access_key: string | null
+  s3_endpoint_url: string | null
+  azure_container: string | null
+  azure_connection_string: string | null
+  updated_at: string
+}
+
+export interface StorageTestResult {
+  success: boolean
+  backend: string
+  message: string
+}

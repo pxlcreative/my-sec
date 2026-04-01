@@ -18,6 +18,8 @@ import type {
   AlertTestResponse,
   SyncStatusEntry,
   CronScheduleOut,
+  StorageSettingsOut,
+  StorageTestResult,
 } from '../types'
 
 const api = axios.create({
@@ -196,6 +198,24 @@ export async function patchSchedule(
 
 export async function triggerSchedule(id: number): Promise<{ status: string; task_id: string }> {
   const response = await api.post(`/schedules/${id}/trigger`)
+  return response.data
+}
+
+// Settings
+export async function getStorageSettings(): Promise<StorageSettingsOut> {
+  const response = await api.get('/settings/storage')
+  return response.data
+}
+
+export async function updateStorageSettings(
+  data: Partial<StorageSettingsOut>
+): Promise<StorageSettingsOut> {
+  const response = await api.patch('/settings/storage', data)
+  return response.data
+}
+
+export async function testStorageConnection(): Promise<StorageTestResult> {
+  const response = await api.post('/settings/storage/test')
   return response.data
 }
 

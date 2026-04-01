@@ -7,6 +7,7 @@ import {
   Bell,
   Download,
   RefreshCw,
+  Settings,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
@@ -18,6 +19,7 @@ const navItems = [
   { label: 'Alerts', icon: Bell, to: '/alerts' },
   { label: 'Export', icon: Download, to: '/export' },
   { label: 'Sync', icon: RefreshCw, to: '/sync' },
+  { label: 'Settings', icon: Settings, to: '/settings' },
 ]
 
 export function Layout() {

@@ -110,17 +110,40 @@ def _stream_pdf_sec_fallback(version_id: int, filename: str) -> Response:
     )
 
 
-def _serve_brochure(brochure, firm_name: str = "") -> StreamingResponse | Response:
+def _stream_pdf_by_uri(uri: str, filename: str, db: Session) -> StreamingResponse:
+    """Dispatch to the correct backend based on the URI scheme."""
+    from services.storage_backends import key_from_uri, get_active_backend
+
+    scheme, key = key_from_uri(uri)
+    if scheme == "local":
+        # Absolute path — use existing local streamer unchanged
+        return _stream_pdf_local(uri, filename)
+
+    backend = get_active_backend(db)
+
+    def _iter():
+        yield from backend.stream(key)
+
+    return StreamingResponse(
+        _iter(),
+        media_type=_PDF_MIME,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _serve_brochure(
+    brochure, firm_name: str = "", db: Session | None = None
+) -> StreamingResponse | Response:
     safe_name = (firm_name or "firm").replace(" ", "_")[:30]
     filename = f"{safe_name}_{brochure.brochure_version_id}.pdf"
 
     if brochure.file_path:
         try:
-            return _stream_pdf_local(brochure.file_path, filename)
-        except FileNotFoundError:
+            return _stream_pdf_by_uri(brochure.file_path, filename, db)
+        except Exception as exc:
             log.warning(
-                "Local PDF missing for version_id=%d, falling back to SEC",
-                brochure.brochure_version_id,
+                "Storage read failed for version_id=%d (%s): %s — falling back to SEC",
+                brochure.brochure_version_id, brochure.file_path, exc,
             )
 
     return _stream_pdf_sec_fallback(brochure.brochure_version_id, filename)
@@ -136,7 +159,7 @@ def get_latest_brochure(crd: int, db: Session = Depends(get_db)):
     brochure = _latest_brochure(crd, db)
     if brochure is None:
         raise HTTPException(status_code=404, detail=f"No brochures stored for CRD {crd}")
-    return _serve_brochure(brochure, firm.legal_name)
+    return _serve_brochure(brochure, firm.legal_name, db)
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +209,7 @@ def get_brochure_by_version(version_id: int, db: Session = Depends(get_db)):
         log.info("version_id=%d not in DB, attempting SEC fallback", version_id)
         return _stream_pdf_sec_fallback(version_id, f"brochure_{version_id}.pdf")
 
-    return _serve_brochure(brochure)
+    return _serve_brochure(brochure, db=db)
 
 
 # ---------------------------------------------------------------------------

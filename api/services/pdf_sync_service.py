@@ -208,13 +208,15 @@ def extract_and_store_pdf(
     version_id: int,
     crd: int,
     submit_date: str | None,
-) -> tuple[Path, int]:
+    backend,  # StorageBackend — typed loosely to avoid circular import
+) -> tuple[str, int]:
     """
-    Extract the PDF whose name contains *version_id* from *zip_path*.
-    Save to /data/brochures/{crd}/{version_id}_{YYYYMMDD}.pdf.
-    Returns (local_path, file_size_bytes).
+    Extract the PDF whose name contains *version_id* from *zip_path* and
+    store it via *backend*.  Returns (uri, file_size_bytes).
     """
-    # Date suffix for filename
+    from services.storage_backends import make_brochure_key
+
+    # Date suffix for object key
     date_tag = "00000000"
     if submit_date:
         for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%Y%m%d"):
@@ -224,12 +226,10 @@ def extract_and_store_pdf(
             except ValueError:
                 continue
 
-    dest_dir = BROCHURES_DIR / str(crd)
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / f"{version_id}_{date_tag}.pdf"
+    key = make_brochure_key(crd, version_id, date_tag)
 
-    if dest.exists() and dest.stat().st_size > 0:
-        return dest, dest.stat().st_size
+    if backend.exists(key):
+        return backend.uri_for(key), 0
 
     with zipfile.ZipFile(zip_path, "r") as zf:
         # SEC names PDFs like "12345678.pdf" or "documents/12345678.pdf"
@@ -241,11 +241,10 @@ def extract_and_store_pdf(
             raise FileNotFoundError(
                 f"PDF for version_id={version_id} not found in {zip_path.name}"
             )
-        pdf_entry = candidates[0]
-        data = zf.read(pdf_entry)
+        data = zf.read(candidates[0])
 
-    dest.write_bytes(data)
-    return dest, len(data)
+    backend.put(key, data)
+    return backend.uri_for(key), len(data)
 
 
 # ---------------------------------------------------------------------------
@@ -275,9 +274,13 @@ def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> set[int
     from models.sync_job import SyncJob
     from sqlalchemy import select
 
+    from services.storage_backends import get_active_backend
+
     job: SyncJob | None = db_session.get(SyncJob, sync_job_id)
     if job is None:
         raise ValueError(f"SyncJob {sync_job_id} not found")
+
+    backend = get_active_backend(db_session)
 
     def _commit_progress(processed: int, stored: int, message: str | None = None) -> None:
         j = db_session.get(SyncJob, sync_job_id)
@@ -331,8 +334,8 @@ def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> set[int
                 continue
 
             try:
-                local_path, size_bytes = extract_and_store_pdf(
-                    zip_path, version_id, crd, row["submit_date"]
+                uri, size_bytes = extract_and_store_pdf(
+                    zip_path, version_id, crd, row["submit_date"], backend
                 )
             except (FileNotFoundError, Exception) as exc:
                 log.warning(
@@ -357,7 +360,7 @@ def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> set[int
                 brochure_name=row["brochure_name"],
                 date_submitted=submit_date_obj,
                 source_month=month_str,
-                file_path=str(local_path),
+                file_path=uri,
                 file_size_bytes=size_bytes,
                 downloaded_at=datetime.now(timezone.utc),
             )
@@ -373,8 +376,8 @@ def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> set[int
             total_stored += 1
             new_brochure_crds.add(crd)
             log.info(
-                "sync_month: stored version_id=%d crd=%d path=%s size=%d bytes",
-                version_id, crd, local_path, size_bytes,
+                "sync_month: stored version_id=%d crd=%d uri=%s size=%d bytes",
+                version_id, crd, uri, size_bytes,
             )
 
             # Periodic progress flush
