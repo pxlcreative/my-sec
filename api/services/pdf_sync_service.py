@@ -48,6 +48,7 @@ _DATE_COLS   = ("SUBMIT_DATE", "Submit_Date", "SUBMITDATE", "DATE_SUBMITTED")
 _HTTP_TIMEOUT = 30          # seconds per request chunk
 _RETRY_BACKOFF = 0.5        # seconds between download retries
 _MAX_RETRIES   = 5
+_HEADERS = {"User-Agent": "MySEC/1.0 (self-hosted; research use)"}
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +66,7 @@ def discover_month_zip_urls(month_str: str) -> list[str]:
     year, month = month_str.split("-")
     log.info("Discovering ZIPs for %s on %s", month_str, SEC_FOIA_PAGE)
 
-    resp = requests.get(SEC_FOIA_PAGE, timeout=_HTTP_TIMEOUT)
+    resp = requests.get(SEC_FOIA_PAGE, headers=_HEADERS, timeout=_HTTP_TIMEOUT)
     resp.raise_for_status()
     html = resp.text
 
@@ -116,7 +117,7 @@ def download_file(url: str, dest_dir: Path) -> Path:
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
             log.info("Downloading %s (attempt %d)", url, attempt)
-            with requests.get(url, stream=True, timeout=_HTTP_TIMEOUT) as r:
+            with requests.get(url, stream=True, headers=_HEADERS, timeout=_HTTP_TIMEOUT) as r:
                 r.raise_for_status()
                 tmp = dest.with_suffix(".tmp")
                 with open(tmp, "wb") as fh:
