@@ -24,7 +24,7 @@ Sources data from public IAPD/ADV bulk CSVs and live IAPD API. Key capabilities:
 ```bash
 make up          # start all Docker services
 make migrate     # run alembic upgrade head (after model changes)
-make seed        # insert default platforms
+make seed        # insert default platforms + seed cron schedules
 make test        # run pytest suite
 make load-data   # full SEC data pipeline (takes 45-90 min, one-time)
 ```
@@ -46,7 +46,7 @@ api/
   routes/              # FastAPI routers
   schemas/             # Pydantic request/response models
   services/            # Pure business logic (no FastAPI imports)
-  celery_tasks/        # Celery tasks + Beat schedule (app.py, monthly_sync.py, refresh_tasks.py, export_tasks.py, match_tasks.py)
+  celery_tasks/        # Celery tasks + Beat scheduler (app.py, db_scheduler.py, monthly_sync.py, refresh_tasks.py, export_tasks.py, match_tasks.py)
 scripts/               # One-off admin/data scripts
 alembic/               # Database migrations
 tests/                 # pytest test suite
@@ -72,8 +72,10 @@ data/                  # Runtime files (git-ignored): CSVs, PDFs, exports
 
 ### Task Queue
 - **Celery** with Redis broker for async tasks and Beat for scheduled jobs
-- Beat schedule is defined in `celery_tasks/app.py`
-- Monthly PDF sync runs on the 2nd of each month at 06:00 UTC
+- Beat schedules are stored in the `cron_schedules` DB table — **not hardcoded** in `app.py`
+- `celery_tasks/db_scheduler.py` (`DatabaseScheduler`) reads from DB on startup and re-syncs every 60 seconds, so schedule edits via the UI take effect without restarting Beat
+- Manage schedules via the UI (Sync → Schedules tab) or API (`GET/PATCH /api/schedules`, `POST /api/schedules/{id}/trigger`)
+- Seed default schedules: `make seed-schedules` (also runs as part of `make seed`)
 - All long-running operations (bulk match >100 rows, exports >500 firms) run as Celery tasks
 - Task results and status are stored in the `sync_jobs` or `export_jobs` DB tables, not in Celery result backend
 
@@ -177,6 +179,7 @@ names from external input before comparison.
 - Loading states: use skeleton loaders, not spinners, for table/list content
 - Error states: use an inline error card with a retry button; do not throw to the error boundary for API errors
 - URL params: Search page filters are stored in URL search params so URLs are shareable
+- Sidebar is collapsible (toggle button in header); collapsed state stored in local `useState`
 
 ### Empty State Requirements
 Every data-fetching page must show a non-broken empty state before SEC data is loaded:
@@ -186,7 +189,7 @@ Every data-fetching page must show a non-broken empty state before SEC data is l
 - **Platform Manager:** "No platforms yet" with create form visible
 - **Alerts:** "No alert rules" with create button
 - **Export Center:** Filter form renders; export with 0 results returns an empty file gracefully
-- **Sync Dashboard:** Status cards show "Never synced" state; job history table is empty
+- **Sync Dashboard:** Status cards show "Never synced" state; job history table is empty; Schedules tab shows "No schedules configured" with seed instructions
 
 ---
 
