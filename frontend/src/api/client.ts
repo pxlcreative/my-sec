@@ -176,6 +176,16 @@ export async function getSyncStatus(): Promise<SyncStatusEntry[]> {
   return response.data
 }
 
+export async function getSyncJobs(limit = 50): Promise<SyncStatusEntry[]> {
+  const response = await api.get('/sync/jobs', { params: { limit } })
+  return response.data
+}
+
+export async function getSyncJob(jobId: number): Promise<SyncStatusEntry> {
+  const response = await api.get(`/sync/jobs/${jobId}`)
+  return response.data
+}
+
 export async function triggerSync(monthStr?: string): Promise<unknown> {
   const params = monthStr ? { month_str: monthStr } : {}
   const response = await api.post('/sync/trigger', null, { params })

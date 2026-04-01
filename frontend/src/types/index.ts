@@ -161,14 +161,21 @@ export interface ExportTemplateOut {
   updated_at: string | null
 }
 
+export interface SyncLogEntry {
+  ts: string
+  msg: string
+}
+
 export interface SyncStatusEntry {
   id: number
   job_type: string
   status: string
+  source_url: string | null
   firms_processed: number
   firms_updated: number
   changes_detected: number
   error_message: string | null
+  results: { log?: SyncLogEntry[] } | null
   started_at: string | null
   completed_at: string | null
   created_at: string | null

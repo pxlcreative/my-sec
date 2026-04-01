@@ -276,11 +276,23 @@ def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> set[int
 
     from services.storage_backends import get_active_backend
 
+    from sqlalchemy.orm.attributes import flag_modified
+
     job: SyncJob | None = db_session.get(SyncJob, sync_job_id)
     if job is None:
         raise ValueError(f"SyncJob {sync_job_id} not found")
 
     backend = get_active_backend(db_session)
+
+    def _log_event(msg: str) -> None:
+        j = db_session.get(SyncJob, sync_job_id)
+        if j:
+            entry = {"ts": datetime.now(timezone.utc).isoformat(), "msg": msg}
+            current = dict(j.results) if j.results else {}
+            current.setdefault("log", []).append(entry)
+            j.results = current
+            flag_modified(j, "results")
+            db_session.commit()
 
     def _commit_progress(processed: int, stored: int, message: str | None = None) -> None:
         j = db_session.get(SyncJob, sync_job_id)
@@ -291,10 +303,14 @@ def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> set[int
                 j.error_message = message
             db_session.commit()
 
+    _log_event(f"Starting sync for {month_str}")
     zip_urls = discover_month_zip_urls(month_str)
     if not zip_urls:
+        _log_event(f"No ZIPs found for {month_str} on SEC FOIA page")
         _commit_progress(0, 0, f"No ZIPs found for {month_str}")
         return set()
+
+    _log_event(f"Found {len(zip_urls)} ZIP(s): {', '.join(u.split('/')[-1] for u in zip_urls)}")
 
     ZIPS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -308,17 +324,24 @@ def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> set[int
     new_brochure_crds: set[int] = set()
 
     for zip_url in zip_urls:
+        zip_name = zip_url.split("/")[-1]
+        _log_event(f"Downloading {zip_name}…")
         try:
             zip_path = download_file(zip_url, ZIPS_DIR)
         except RuntimeError as exc:
             log.error("sync_month: download failed for %s: %s", zip_url, exc)
+            _log_event(f"Download failed for {zip_name}: {exc}")
             continue
 
+        _log_event(f"Downloaded {zip_name} ({zip_path.stat().st_size // (1024*1024)} MB) — loading mapping CSV…")
         try:
             mapping_rows = load_mapping_csv(zip_path)
         except Exception as exc:
             log.error("sync_month: mapping CSV error in %s: %s", zip_path.name, exc)
+            _log_event(f"Mapping CSV error in {zip_name}: {exc}")
             continue
+
+        _log_event(f"Loaded {len(mapping_rows):,} rows from {zip_name} — processing PDFs…")
 
         for row in mapping_rows:
             crd        = row["crd"]
@@ -383,8 +406,13 @@ def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> set[int
             # Periodic progress flush
             if total_processed % 500 == 0:
                 _commit_progress(total_processed, total_stored)
+                _log_event(f"Progress: {total_processed:,} processed, {total_stored:,} stored")
 
     _commit_progress(total_processed, total_stored)
+    _log_event(
+        f"Sync complete: {total_processed:,} processed, {total_stored:,} stored, "
+        f"{len(new_brochure_crds):,} new firms"
+    )
     log.info(
         "sync_month %s complete: processed=%d stored=%d new_crds=%d",
         month_str, total_processed, total_stored, len(new_brochure_crds),

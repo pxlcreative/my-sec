@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, CheckCircle, XCircle, Clock, AlertTriangle, Play, Pencil, Check, X } from 'lucide-react'
+import { RefreshCw, Loader2, CheckCircle, XCircle, Clock, AlertTriangle, Play, Pencil, Check, X, ChevronDown, ChevronRight } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { getSyncStatus, triggerSync, getSchedules, patchSchedule, triggerSchedule } from '../api/client'
+import { getSyncStatus, getSyncJobs, getSyncJob, triggerSync, getSchedules, patchSchedule, triggerSchedule } from '../api/client'
 import { Skeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 import { formatDate, formatDuration } from '../utils'
@@ -36,6 +36,75 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
       <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">{label}</p>
       <p className="text-2xl font-bold text-gray-900">{value}</p>
       {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
+    </div>
+  )
+}
+
+function JobLogPanel({ jobId, isActive }: { jobId: number; isActive: boolean }) {
+  const logRef = useRef<HTMLDivElement>(null)
+
+  const { data: job } = useQuery({
+    queryKey: ['sync-job', jobId],
+    queryFn: () => getSyncJob(jobId),
+    refetchInterval: isActive ? 3000 : false,
+  })
+
+  const logLines = job?.results?.log ?? []
+
+  // Auto-scroll to bottom when new lines arrive
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight
+    }
+  }, [logLines.length])
+
+  return (
+    <div className="bg-gray-950 rounded-b-lg border-t border-gray-800 px-4 py-3">
+      {/* Live counters */}
+      {job && (
+        <div className="flex gap-6 mb-3 text-xs text-gray-400">
+          <span>Processed: <span className="text-gray-200 font-mono">{job.firms_processed.toLocaleString()}</span></span>
+          <span>Stored: <span className="text-gray-200 font-mono">{job.firms_updated.toLocaleString()}</span></span>
+          <span>Changes: <span className="text-gray-200 font-mono">{job.changes_detected.toLocaleString()}</span></span>
+          {job.source_url && <span className="truncate">Source: <span className="text-gray-400">{job.source_url}</span></span>}
+        </div>
+      )}
+
+      {/* Log output */}
+      <div
+        ref={logRef}
+        className="font-mono text-xs text-gray-300 max-h-56 overflow-y-auto space-y-0.5 pr-1"
+        style={{ scrollbarColor: '#374151 transparent' }}
+      >
+        {logLines.length === 0 ? (
+          <p className="text-gray-600 italic">
+            {isActive ? 'Waiting for worker to start…' : 'No log output recorded.'}
+          </p>
+        ) : (
+          logLines.map((entry, i) => (
+            <div key={i} className="flex gap-3 leading-5">
+              <span className="text-gray-600 flex-shrink-0 w-20 tabular-nums">
+                {new Date(entry.ts).toLocaleTimeString('en-US', { hour12: false })}
+              </span>
+              <span className={
+                entry.msg.toLowerCase().includes('error') || entry.msg.toLowerCase().includes('failed')
+                  ? 'text-red-400'
+                  : entry.msg.toLowerCase().includes('complete') || entry.msg.toLowerCase().includes('stored')
+                    ? 'text-green-400'
+                    : 'text-gray-300'
+              }>
+                {entry.msg}
+              </span>
+            </div>
+          ))
+        )}
+        {isActive && (
+          <div className="flex items-center gap-2 text-brand-400 mt-1">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            <span>Running…</span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -243,10 +312,23 @@ export default function Sync() {
   const { addToast } = useToast()
   const [monthStr, setMonthStr] = useState('')
   const [activeTab, setActiveTab] = useState<'history' | 'schedules'>('history')
+  const [expandedJobId, setExpandedJobId] = useState<number | null>(null)
 
+  // Latest-per-type for stat cards + chart
   const { data: jobs, isLoading, refetch } = useQuery({
     queryKey: ['sync-status'],
     queryFn: getSyncStatus,
+    refetchInterval: (query) => {
+      const data = query.state.data as SyncStatusEntry[] | undefined
+      const hasRunning = data?.some((j) => j.status === 'running' || j.status === 'pending')
+      return hasRunning ? 5000 : false
+    },
+  })
+
+  // Full history for the job table
+  const { data: allJobs, isLoading: allJobsLoading, refetch: refetchAll } = useQuery({
+    queryKey: ['sync-jobs'],
+    queryFn: () => getSyncJobs(50),
     refetchInterval: (query) => {
       const data = query.state.data as SyncStatusEntry[] | undefined
       const hasRunning = data?.some((j) => j.status === 'running' || j.status === 'pending')
@@ -259,12 +341,14 @@ export default function Sync() {
     onSuccess: () => {
       addToast('Sync job triggered', 'success')
       refetch()
+      refetchAll()
     },
     onError: () => addToast('Failed to trigger sync', 'error'),
   })
 
   const latest = jobs?.[0]
   const recentJobs = jobs?.slice(0, 20) ?? []
+  const historyJobs = allJobs ?? []
 
   const chartData = (jobs ?? [])
     .slice(0, 12)
@@ -403,8 +487,13 @@ export default function Sync() {
               <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
                 <div className="px-4 py-3 border-b border-gray-200">
                   <h2 className="text-sm font-semibold text-gray-700">Job History</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">Click a row to see logs and progress</p>
                 </div>
-                {recentJobs.length === 0 ? (
+                {allJobsLoading ? (
+                  <div className="p-4 space-y-2">
+                    {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10" />)}
+                  </div>
+                ) : historyJobs.length === 0 ? (
                   <div className="p-10 text-center text-gray-400">
                     <RefreshCw className="w-10 h-10 mx-auto mb-3 opacity-50" />
                     <p>No sync jobs yet</p>
@@ -414,6 +503,7 @@ export default function Sync() {
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50 border-b border-gray-200">
                         <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase w-6"></th>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">ID</th>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Type</th>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
@@ -425,32 +515,54 @@ export default function Sync() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
-                        {recentJobs.map((job) => (
-                          <tr key={job.id} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 font-mono text-xs text-gray-400">#{job.id}</td>
-                            <td className="px-4 py-3 text-gray-600">{job.job_type}</td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-1.5">
-                                <StatusIcon status={job.status} />
-                                <StatusBadge status={job.status} />
-                              </div>
-                              {job.error_message && (
-                                <p className="text-xs text-red-500 mt-0.5 max-w-[200px] truncate" title={job.error_message}>
-                                  {job.error_message}
-                                </p>
+                        {historyJobs.map((job) => {
+                          const isExpanded = expandedJobId === job.id
+                          const isActive = job.status === 'running' || job.status === 'pending'
+                          return (
+                            <React.Fragment key={job.id}>
+                              <tr
+                                onClick={() => setExpandedJobId(isExpanded ? null : job.id)}
+                                className="hover:bg-gray-50 cursor-pointer select-none"
+                              >
+                                <td className="px-3 py-3 text-gray-400">
+                                  {isExpanded
+                                    ? <ChevronDown className="w-3.5 h-3.5" />
+                                    : <ChevronRight className="w-3.5 h-3.5" />
+                                  }
+                                </td>
+                                <td className="px-4 py-3 font-mono text-xs text-gray-400">#{job.id}</td>
+                                <td className="px-4 py-3 text-gray-600">{job.job_type}</td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-1.5">
+                                    <StatusIcon status={job.status} />
+                                    <StatusBadge status={job.status} />
+                                  </div>
+                                  {job.error_message && (
+                                    <p className="text-xs text-red-500 mt-0.5 max-w-[200px] truncate" title={job.error_message}>
+                                      {job.error_message}
+                                    </p>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-gray-500 text-xs">{formatDate(job.started_at)}</td>
+                                <td className="px-4 py-3 text-gray-500 text-xs font-mono">
+                                  {formatDuration(job.started_at, job.completed_at)}
+                                </td>
+                                <td className="px-4 py-3 text-right font-mono text-xs">{job.firms_processed.toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right font-mono text-xs">{job.firms_updated.toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right font-mono text-xs font-medium text-brand-600">
+                                  {job.changes_detected.toLocaleString()}
+                                </td>
+                              </tr>
+                              {isExpanded && (
+                                <tr>
+                                  <td colSpan={9} className="p-0">
+                                    <JobLogPanel jobId={job.id} isActive={isActive} />
+                                  </td>
+                                </tr>
                               )}
-                            </td>
-                            <td className="px-4 py-3 text-gray-500 text-xs">{formatDate(job.started_at)}</td>
-                            <td className="px-4 py-3 text-gray-500 text-xs font-mono">
-                              {formatDuration(job.started_at, job.completed_at)}
-                            </td>
-                            <td className="px-4 py-3 text-right font-mono text-xs">{job.firms_processed.toLocaleString()}</td>
-                            <td className="px-4 py-3 text-right font-mono text-xs">{job.firms_updated.toLocaleString()}</td>
-                            <td className="px-4 py-3 text-right font-mono text-xs font-medium text-brand-600">
-                              {job.changes_detected.toLocaleString()}
-                            </td>
-                          </tr>
-                        ))}
+                            </React.Fragment>
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>

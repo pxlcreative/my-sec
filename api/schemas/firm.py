@@ -115,10 +115,12 @@ class SyncStatusEntry(BaseModel):
     id: int
     job_type: str
     status: str
+    source_url: str | None
     firms_processed: int
     firms_updated: int
     changes_detected: int
     error_message: str | None
+    results: dict | None
     started_at: datetime.datetime | None
     completed_at: datetime.datetime | None
     created_at: datetime.datetime | None
