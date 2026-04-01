@@ -67,6 +67,13 @@ def discover_month_zip_urls(month_str: str) -> list[str]:
     log.info("Discovering ZIPs for %s on %s", month_str, SEC_FOIA_PAGE)
 
     resp = requests.get(SEC_FOIA_PAGE, headers=_HEADERS, timeout=_HTTP_TIMEOUT)
+    if resp.status_code == 403:
+        if "Rate Threshold" in resp.text or "rate" in resp.text.lower():
+            raise RuntimeError(
+                "SEC.gov rate limit exceeded. Wait ~10 minutes before retrying. "
+                "See https://www.sec.gov/developer for SEC access guidelines."
+            )
+        resp.raise_for_status()
     resp.raise_for_status()
     html = resp.text
 

@@ -84,4 +84,4 @@ def monthly_pdf_sync(self, month_str: str | None = None, job_id: int | None = No
                     session.commit()
             except Exception:
                 log.exception("monthly_pdf_sync: could not update SyncJob to failed")
-            raise self.retry(exc=exc, countdown=300) if self.request.retries < self.max_retries else exc
+            raise self.retry(exc=exc, countdown=900) if self.request.retries < self.max_retries else exc
