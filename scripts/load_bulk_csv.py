@@ -59,22 +59,37 @@ ZIP_URLS = [
 # Column name normalisation
 # ---------------------------------------------------------------------------
 # Maps canonical name → list of known column header variants (upper-cased).
-# The 2000–2011 ZIP uses older IAPD column names; 2011–2024 uses newer ones.
+# Covers three formats:
+#   • 2000–2011 legacy ZIP (IA_MAIN.csv, old column names)
+#   • 2011–2024 IA_MAIN.csv (renamed columns)
+#   • 2011–2024 IA_ADV_Base_A_*.csv (ADV form field numbers — SEC's current format)
 COLUMN_MAP: dict[str, list[str]] = {
-    "crd_number":            ["CRD_NUMBER", "FIRM_CRD_NUMBER", "CRD"],
-    "firm_name":             ["FIRM_NAME", "ORGNAME", "BUS_NAME", "BUSNAME"],
-    "legal_name":            ["ITEM1A_LEGAL_NAME", "LEGAL_NAME", "LEGALNAME", "FIRM_NAME"],
-    "filing_date":           ["ADV_FILING_DATE", "FILING_DATE", "ADVFILINGDATE"],
-    "aum_discretionary":     ["ITEM5F_2A", "ITEM5F2A", "AUM_DISCRETIONARY", "DISCRET_AUM"],
-    "aum_non_discretionary": ["ITEM5F_2B", "ITEM5F2B", "AUM_NONDISCRETIONARY", "NONDISCRET_AUM"],
-    "aum_total":             ["ITEM5F_2C", "ITEM5F2C", "AUM_TOTAL", "TOTAL_AUM", "REG_AUM"],
+    "crd_number":            ["CRD_NUMBER", "FIRM_CRD_NUMBER", "CRD",
+                              "1E1"],
+    "firm_name":             ["FIRM_NAME", "ORGNAME", "BUS_NAME", "BUSNAME",
+                              "1B1"],
+    "legal_name":            ["ITEM1A_LEGAL_NAME", "LEGAL_NAME", "LEGALNAME", "FIRM_NAME",
+                              "1A"],
+    "filing_date":           ["ADV_FILING_DATE", "FILING_DATE", "ADVFILINGDATE",
+                              "DATESUBMITTED"],
+    "aum_discretionary":     ["ITEM5F_2A", "ITEM5F2A", "AUM_DISCRETIONARY", "DISCRET_AUM",
+                              "5F2A"],
+    "aum_non_discretionary": ["ITEM5F_2B", "ITEM5F2B", "AUM_NONDISCRETIONARY", "NONDISCRET_AUM",
+                              "5F2B"],
+    "aum_total":             ["ITEM5F_2C", "ITEM5F2C", "AUM_TOTAL", "TOTAL_AUM", "REG_AUM",
+                              "5F2C"],
     "num_employees":         ["ITEM5A_TOTAL_EMPLOYEES", "TOTAL_EMPLOYEES", "NUM_EMPLOYEES",
-                              "ITEM5A_EMPL_TOTAL", "EMPLOYEES_TOTAL"],
+                              "ITEM5A_EMPL_TOTAL", "EMPLOYEES_TOTAL",
+                              "5A"],
     "main_street1":          ["ITEM1F_ADDRESS", "MAIN_ADDRESS", "ADDRESS1", "STREET1",
-                              "ITEM1F_STREET1"],
-    "main_city":             ["ITEM1F_CITY", "MAIN_CITY", "CITY"],
-    "main_state":            ["ITEM1F_STATE", "MAIN_STATE", "STATE"],
-    "main_zip":              ["ITEM1F_ZIP", "MAIN_ZIP", "ZIP", "ZIPCODE"],
+                              "ITEM1F_STREET1",
+                              "1F1-STREET 1"],
+    "main_city":             ["ITEM1F_CITY", "MAIN_CITY", "CITY",
+                              "1F1-CITY"],
+    "main_state":            ["ITEM1F_STATE", "MAIN_STATE", "STATE",
+                              "1F1-STATE"],
+    "main_zip":              ["ITEM1F_ZIP", "MAIN_ZIP", "ZIP", "ZIPCODE",
+                              "1F1-POSTAL"],
     "registration_status":   ["REGISTRATION_STATUS", "REG_STATUS", "REGSTATUS"],
 }
 
@@ -110,10 +125,13 @@ def _int_or_none(val: str) -> int | None:
 
 
 def _parse_date(val: str) -> date | None:
-    """Try common date formats used in SEC CSVs."""
+    """Try common date formats used in SEC CSVs.
+    Handles both plain dates and datetime strings (e.g. '11/13/2012 01:39:54 PM').
+    """
     if not val or not val.strip():
         return None
-    for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%m-%d-%Y", "%Y%m%d"):
+    for fmt in ("%m/%d/%Y %I:%M:%S %p", "%m/%d/%Y %H:%M:%S",
+                "%m/%d/%Y", "%Y-%m-%d", "%m-%d-%Y", "%Y%m%d"):
         try:
             return datetime.strptime(val.strip(), fmt).date()
         except ValueError:
@@ -176,67 +194,105 @@ def download_zip(url: str, dest_dir: Path) -> Path:
 # 2 & 3. Parse IA_MAIN.csv
 # ---------------------------------------------------------------------------
 
-def parse_ia_main(zip_path: Path) -> list[dict]:
+def _parse_adv_csv(zf: zipfile.ZipFile, entry_name: str,
+                   default_registration_status: str | None = None) -> list[dict]:
     """
-    Open the ZIP, find IA_MAIN.csv, normalise columns, and return a list of
-    dicts with canonical keys. Rows with no crd_number or filing_date are
-    skipped.
+    Parse one CSV entry from an open ZipFile using the canonical column map.
+    Returns a list of row dicts with canonical keys.
     """
     rows: list[dict] = []
     errors = 0
 
+    with zf.open(entry_name) as raw:
+        text = io.TextIOWrapper(raw, encoding="utf-8-sig", errors="replace", newline="")
+        reader = csv.DictReader(text)
+        header_map = normalize_headers(reader.fieldnames or [])
+
+        for i, raw_row in enumerate(reader):
+            try:
+                row = {canonical: raw_row[raw_h]
+                       for raw_h, canonical in header_map.items()
+                       if raw_h in raw_row}
+
+                crd = _int_or_none(row.get("crd_number", ""))
+                if not crd:
+                    continue
+
+                filing_date = _parse_date(row.get("filing_date", ""))
+                if not filing_date:
+                    continue
+
+                reg_status = (row.get("registration_status") or "").strip() or default_registration_status
+
+                rows.append({
+                    "crd_number":            crd,
+                    "firm_name":             (row.get("firm_name") or "").strip() or None,
+                    "legal_name":            (row.get("legal_name") or "").strip() or None,
+                    "filing_date":           filing_date,
+                    "aum_discretionary":     _int_or_none(row.get("aum_discretionary", "")),
+                    "aum_non_discretionary": _int_or_none(row.get("aum_non_discretionary", "")),
+                    "aum_total":             _int_or_none(row.get("aum_total", "")),
+                    "num_employees":         _int_or_none(row.get("num_employees", "")),
+                    "main_street1":          (row.get("main_street1") or "").strip() or None,
+                    "main_city":             (row.get("main_city") or "").strip() or None,
+                    "main_state":            _normalize_state(row.get("main_state", "")),
+                    "main_zip":              _normalize_zip(row.get("main_zip", "")),
+                    "registration_status":   reg_status,
+                })
+            except Exception as exc:
+                errors += 1
+                if errors <= 5:
+                    log.warning("Row %d parse error in %s: %s", i, entry_name, exc)
+
+    return rows, errors
+
+
+def parse_ia_main(zip_path: Path) -> list[dict]:
+    """
+    Open the ZIP, find the main firm data CSV, normalise columns, and return
+    a list of dicts with canonical keys.
+
+    Supports two formats:
+      • Legacy:  IA_MAIN.csv (used in older bulk ZIPs)
+      • Current: IA_ADV_Base_A_*.csv (SEC's format since ~2024)
+
+    Rows with no crd_number or filing_date are skipped.
+    """
+    import re
+
+    rows: list[dict] = []
+    total_errors = 0
+
     with zipfile.ZipFile(zip_path) as zf:
-        # Find IA_MAIN.csv case-insensitively
         names = zf.namelist()
-        ia_main_name = next(
-            (n for n in names if Path(n).name.upper() == "IA_MAIN.CSV"), None
-        )
-        if not ia_main_name:
-            log.warning("IA_MAIN.CSV not found in %s", zip_path.name)
+
+        # --- Try legacy IA_MAIN.csv first ---
+        ia_main = next((n for n in names if Path(n).name.upper() == "IA_MAIN.CSV"), None)
+        if ia_main:
+            log.info("Parsing %s from %s ...", ia_main, zip_path.name)
+            chunk, errors = _parse_adv_csv(zf, ia_main)
+            rows.extend(chunk)
+            total_errors += errors
+            log.info("Parsed %d rows from IA_MAIN (%d errors)", len(rows), total_errors)
             return rows
 
-        log.info("Parsing %s from %s ...", ia_main_name, zip_path.name)
-        with zf.open(ia_main_name) as raw:
-            # SEC CSVs are typically latin-1 encoded
-            text = io.TextIOWrapper(raw, encoding="latin-1", newline="")
-            reader = csv.DictReader(text)
-            header_map = normalize_headers(reader.fieldnames or [])
+        # --- Fall back to IA_ADV_Base_A_*.csv (current SEC format) ---
+        base_a_files = sorted(
+            n for n in names
+            if re.search(r"IA_ADV_Base_A", n, re.IGNORECASE) and n.endswith(".csv")
+        )
+        if not base_a_files:
+            log.warning("No recognised firm data CSV (IA_MAIN.CSV or IA_ADV_Base_A*.csv) "
+                        "found in %s", zip_path.name)
+            return rows
 
-            for i, raw_row in enumerate(reader):
-                try:
-                    row = {canonical: raw_row[raw_h]
-                           for raw_h, canonical in header_map.items()
-                           if raw_h in raw_row}
+        for entry in base_a_files:
+            log.info("Parsing %s from %s ...", entry, zip_path.name)
+            chunk, errors = _parse_adv_csv(zf, entry, default_registration_status="Registered")
+            rows.extend(chunk)
+            total_errors += errors
 
-                    crd = _int_or_none(row.get("crd_number", ""))
-                    if not crd:
-                        continue
-
-                    filing_date = _parse_date(row.get("filing_date", ""))
-                    if not filing_date:
-                        continue
-
-                    rows.append({
-                        "crd_number":            crd,
-                        "firm_name":             (row.get("firm_name") or "").strip() or None,
-                        "legal_name":            (row.get("legal_name") or "").strip() or None,
-                        "filing_date":           filing_date,
-                        "aum_discretionary":     _int_or_none(row.get("aum_discretionary", "")),
-                        "aum_non_discretionary": _int_or_none(row.get("aum_non_discretionary", "")),
-                        "aum_total":             _int_or_none(row.get("aum_total", "")),
-                        "num_employees":         _int_or_none(row.get("num_employees", "")),
-                        "main_street1":          (row.get("main_street1") or "").strip() or None,
-                        "main_city":             (row.get("main_city") or "").strip() or None,
-                        "main_state":            _normalize_state(row.get("main_state", "")),
-                        "main_zip":              _normalize_zip(row.get("main_zip", "")),
-                        "registration_status":   (row.get("registration_status") or "").strip() or None,
-                    })
-                except Exception as exc:
-                    errors += 1
-                    if errors <= 5:
-                        log.warning("Row %d parse error: %s", i, exc)
-
-    log.info("Parsed %d rows from IA_MAIN (%d errors)", len(rows), errors)
+    log.info("Parsed %d rows from IA_ADV_Base_A (%d errors)", len(rows), total_errors)
     return rows
 
 
@@ -359,35 +415,69 @@ def parse_drp_counts(zip_path: Path) -> dict[int, dict[str, int]]:
     """
     Read all DRP_*.csv files from the ZIP and count records per CRD.
     Returns {crd_number: {criminal_count: N, regulatory_count: N, ...}}.
+
+    Handles two layouts:
+      • Legacy: CRD column present (CRD_NUMBER / FIRM_CRD_NUMBER)
+      • Current (IA_ADV_Base_A format): FilingID column; resolves to CRD via
+        a lookup built from IA_ADV_Base_A in the same ZIP.
     """
+    import re as _re
+
     counts: dict[int, dict[str, int]] = defaultdict(
         lambda: {"criminal_count": 0, "regulatory_count": 0,
                  "civil_count": 0, "customer_count": 0}
     )
 
     with zipfile.ZipFile(zip_path) as zf:
-        for name in zf.namelist():
-            stem = Path(name).stem.upper()
-            counter_field = DRP_COUNTER_MAP.get(stem)
+        names = zf.namelist()
+
+        # Build FilingID→CRD lookup for new-format ZIPs
+        filing_id_to_crd: dict[str, int] = {}
+        base_a = next(
+            (n for n in names if _re.search(r"IA_ADV_Base_A", n, _re.IGNORECASE)
+             and n.endswith(".csv")), None
+        )
+        if base_a:
+            with zf.open(base_a) as raw:
+                text = io.TextIOWrapper(raw, encoding="utf-8-sig", errors="replace", newline="")
+                reader = csv.DictReader(text)
+                for row in reader:
+                    fid = row.get("FilingID", "").strip()
+                    crd = _int_or_none(row.get("1E1", ""))
+                    if fid and crd:
+                        filing_id_to_crd[fid] = crd
+
+        # Match DRP files by partial stem (handles date suffixes like _20001019_20111104)
+        for name in names:
+            stem_upper = Path(name).stem.upper()
+            counter_field = next(
+                (v for k, v in DRP_COUNTER_MAP.items() if k in stem_upper), None
+            )
             if not counter_field:
                 continue
 
             log.info("Parsing %s from %s ...", name, zip_path.name)
             with zf.open(name) as raw:
-                text = io.TextIOWrapper(raw, encoding="latin-1", newline="")
+                text = io.TextIOWrapper(raw, encoding="utf-8-sig", errors="replace", newline="")
                 reader = csv.DictReader(text)
-                # CRD column may be named CRD_NUMBER or FIRM_CRD_NUMBER
-                crd_field = None
-                for candidate in ("CRD_NUMBER", "FIRM_CRD_NUMBER", "CRD"):
-                    if candidate in (reader.fieldnames or []):
-                        crd_field = candidate
-                        break
-                if not crd_field:
-                    log.warning("No CRD column found in %s, skipping", name)
+                fieldnames = reader.fieldnames or []
+
+                # Prefer direct CRD column; fall back to FilingID lookup
+                crd_field = next(
+                    (c for c in ("CRD_NUMBER", "FIRM_CRD_NUMBER", "CRD") if c in fieldnames),
+                    None,
+                )
+                filing_id_field = "FilingID" if "FilingID" in fieldnames else None
+
+                if not crd_field and not filing_id_field:
+                    log.warning("No CRD or FilingID column in %s, skipping", name)
                     continue
 
                 for row in reader:
-                    crd = _int_or_none(row.get(crd_field, ""))
+                    crd = _int_or_none(row.get(crd_field, "")) if crd_field else None
+                    if crd is None and filing_id_field:
+                        fid = row.get(filing_id_field, "").strip()
+                        crd = filing_id_to_crd.get(fid)
                     if crd:
                         counts[crd][counter_field] += 1
 
