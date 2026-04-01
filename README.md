@@ -86,7 +86,7 @@ This runs `alembic upgrade head` inside the API container, creating all tables a
 make seed
 ```
 
-This inserts the default platforms (Orion, Envestnet, Schwab, Fidelity, Pershing) into the database. Safe to re-run — it skips existing records.
+This inserts the default platforms (Orion, Envestnet, Schwab, Fidelity, Pershing) and seeds the default Celery Beat schedules into the database. Safe to re-run — it skips existing records.
 
 ### 2e. Start the frontend
 
@@ -182,7 +182,7 @@ curl http://localhost:9200/firms/_count
 
 ### Monthly sync (ongoing)
 
-Celery Beat automatically triggers a PDF sync on the 2nd of every month at 06:00 UTC. No manual action needed once the platform is running. Monitor sync jobs on the **Sync Dashboard** page in the frontend.
+Celery Beat automatically triggers a PDF sync based on the schedule stored in the `cron_schedules` table (default: 2nd of every month at 06:00 UTC). You can view, edit, enable/disable, or manually trigger schedules from the **Sync → Schedules** tab in the frontend, or via the API (`GET/PATCH /api/schedules`, `POST /api/schedules/{id}/trigger`). Schedule changes take effect within 60 seconds without restarting Beat.
 
 ---
 
@@ -297,7 +297,8 @@ mysec/
 │   │   ├── alert.py            # AlertRule, AlertEvent
 │   │   ├── sync_job.py         # SyncJob
 │   │   ├── export_job.py       # ExportJob
-│   │   └── api_key.py          # ApiKey
+│   │   ├── api_key.py          # ApiKey
+│   │   └── cron_schedule.py    # CronSchedule (Beat schedule definitions)
 │   ├── routes/                 # FastAPI routers
 │   │   ├── firms.py            # GET /api/firms, /api/firms/{crd}, etc.
 │   │   ├── match.py            # POST /api/match/bulk
@@ -306,7 +307,8 @@ mysec/
 │   │   ├── alerts.py           # /api/alerts
 │   │   ├── excel.py            # /api/firms/{crd}/due-diligence-excel
 │   │   ├── external.py         # /api/external (Bearer token required)
-│   │   └── sync.py             # /api/sync/status, /api/sync/trigger
+│   │   ├── sync.py             # /api/sync/status, /api/sync/trigger
+│   │   └── schedules.py        # /api/schedules (cron job management)
 │   ├── schemas/                # Pydantic request/response schemas
 │   ├── services/               # Business logic (not FastAPI-aware)
 │   │   ├── firm_service.py
@@ -322,7 +324,8 @@ mysec/
 │   │   ├── platform_service.py
 │   │   └── auth_service.py     # API key hashing + verification
 │   └── celery_tasks/
-│       ├── app.py              # Celery app + Beat schedule
+│       ├── app.py              # Celery app configuration
+│       ├── db_scheduler.py     # DatabaseScheduler — loads Beat schedules from DB
 │       ├── monthly_sync.py     # monthly_pdf_sync task
 │       ├── refresh_tasks.py    # refresh_firm_task
 │       ├── export_tasks.py     # run_export_job task + cleanup beat task
@@ -337,6 +340,7 @@ mysec/
 │   ├── index_firms_to_es.py    # Index all firms into Elasticsearch
 │   ├── backfill_annual_aum.py  # MODULE C: populate aum_2023/aum_2024 columns
 │   ├── seed_platforms.py       # Insert default platform definitions
+│   ├── seed_schedules.py       # Insert default Celery Beat schedules
 │   ├── create_api_key.py       # Generate a new external API key
 │   ├── init_db.py              # Run migrations (alias for alembic upgrade head)
 │   └── export_openapi.py       # Write openapi.json to docs/
@@ -469,7 +473,8 @@ docker compose exec api python scripts/index_firms_to_es.py
 | `make restart` | `down` then `up` |
 | `make logs` | Tail logs for all services |
 | `make migrate` | Run `alembic upgrade head` in the API container |
-| `make seed` | Insert default platform definitions |
+| `make seed` | Insert default platforms and seed Celery Beat schedules |
+| `make seed-schedules` | Seed Celery Beat schedules only |
 | `make load-data` | Full data pipeline: CSV import → ES index → AUM backfill |
 | `make test` | Run the full pytest suite |
 | `make reindex` | Re-index all firms into Elasticsearch (useful after schema changes) |
