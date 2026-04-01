@@ -154,7 +154,8 @@ def download_zip(url: str, dest_dir: Path) -> Path:
         return dest
 
     log.info("Downloading %s ...", url)
-    with requests.get(url, stream=True, timeout=120) as r:
+    headers = {"User-Agent": "MySEC/1.0 (self-hosted; research use)"}
+    with requests.get(url, stream=True, timeout=120, headers=headers) as r:
         r.raise_for_status()
         total = int(r.headers.get("content-length", 0))
         downloaded = 0
