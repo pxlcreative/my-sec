@@ -1,4 +1,4 @@
-# SEC Adviser Database Platform — Full Architecture Spec
+# MySEC — Full Architecture Spec
 
 **Version 2.0** — Updated with requirements 1–8  
 **Prepared for:** Claude Code  

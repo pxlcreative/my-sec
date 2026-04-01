@@ -1,4 +1,4 @@
-# SEC Adviser Database Platform
+# MySEC
 
 A private, self-hosted database of SEC-registered investment adviser firms built on public IAPD/ADV data. Provides full-text and fuzzy firm search, historical AUM time series, ADV Part 2 PDF storage, bulk CRD matching, platform tagging, alerts, and on-demand due diligence Excel workbooks.
 
@@ -49,8 +49,8 @@ node --version            # v20.x or higher
 ### 2a. Clone and configure environment
 
 ```bash
-git clone <your-repo-url> sec-adviser-platform
-cd sec-adviser-platform
+git clone <your-repo-url> mysec
+cd mysec
 
 # Copy the example env file and fill in any local overrides
 cp .env.example .env
@@ -283,7 +283,7 @@ Tests use a separate `test_` database that is created and torn down automaticall
 ## 8. Project Structure
 
 ```
-sec-adviser-platform/
+mysec/
 │
 ├── api/                        # FastAPI application
 │   ├── main.py                 # App entry point, router registration, middleware

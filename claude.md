@@ -1,4 +1,4 @@
-# CLAUDE.md — SEC Adviser Database Platform
+# CLAUDE.md — MySEC
 
 This file tells Claude Code how this project is structured and what conventions to follow.
 Read it before making any changes. Update it when conventions change.

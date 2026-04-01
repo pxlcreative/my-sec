@@ -16,7 +16,7 @@ logging.basicConfig(level=settings.log_level.upper())
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="SEC Adviser Database Platform",
+    title="MySEC",
     version="0.1.0",
     description="Self-hosted mirror of SEC-registered investment adviser data.",
 )

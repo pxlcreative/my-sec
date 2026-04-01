@@ -26,7 +26,7 @@ export function Layout() {
       <aside className="w-60 flex-shrink-0 bg-brand-900 flex flex-col h-full">
         {/* Logo */}
         <div className="px-4 py-5 border-b border-brand-800">
-          <p className="text-white font-semibold text-sm leading-tight">SEC Adviser Platform</p>
+          <p className="text-white font-semibold text-sm leading-tight">MySEC</p>
           <p className="text-blue-300 text-xs mt-0.5">Database & Analytics</p>
         </div>
 
@@ -56,7 +56,7 @@ export function Layout() {
 
         {/* Footer */}
         <div className="px-4 py-3 border-t border-brand-800">
-          <p className="text-blue-300 text-xs">SEC Adviser Platform</p>
+          <p className="text-blue-300 text-xs">MySEC</p>
           <p className="text-blue-400 text-xs mt-0.5">v0.1.0</p>
         </div>
       </aside>
