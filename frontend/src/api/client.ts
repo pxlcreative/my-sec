@@ -186,6 +186,11 @@ export async function getSyncJob(jobId: number): Promise<SyncStatusEntry> {
   return response.data
 }
 
+export async function cancelSyncJob(jobId: number): Promise<unknown> {
+  const response = await api.post(`/sync/jobs/${jobId}/cancel`)
+  return response.data
+}
+
 export async function triggerSync(monthStr?: string): Promise<unknown> {
   const params = monthStr ? { month_str: monthStr } : {}
   const response = await api.post('/sync/trigger', null, { params })

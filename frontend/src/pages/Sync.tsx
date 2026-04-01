@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, CheckCircle, XCircle, Clock, AlertTriangle, Play, Pencil, Check, X, ChevronDown, ChevronRight } from 'lucide-react'
+import { RefreshCw, Loader2, CheckCircle, XCircle, Clock, AlertTriangle, Play, Pencil, Check, X, ChevronDown, ChevronRight, StopCircle } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { getSyncStatus, getSyncJobs, getSyncJob, triggerSync, getSchedules, patchSchedule, triggerSchedule } from '../api/client'
+import { getSyncStatus, getSyncJobs, getSyncJob, cancelSyncJob, triggerSync, getSchedules, patchSchedule, triggerSchedule } from '../api/client'
 import { Skeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 import { formatDate, formatDuration } from '../utils'
@@ -22,6 +22,7 @@ function StatusBadge({ status }: { status: string }) {
     failed: 'bg-red-100 text-red-800',
     running: 'bg-blue-100 text-blue-800',
     pending: 'bg-yellow-100 text-yellow-800',
+    cancelled: 'bg-gray-100 text-gray-600',
   }
   return (
     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] ?? 'bg-gray-100 text-gray-600'}`}>
@@ -346,6 +347,16 @@ export default function Sync() {
     onError: () => addToast('Failed to trigger sync', 'error'),
   })
 
+  const cancelMutation = useMutation({
+    mutationFn: (jobId: number) => cancelSyncJob(jobId),
+    onSuccess: () => {
+      addToast('Job cancelled', 'success')
+      refetch()
+      refetchAll()
+    },
+    onError: () => addToast('Failed to cancel job', 'error'),
+  })
+
   const latest = jobs?.[0]
   const recentJobs = jobs?.slice(0, 20) ?? []
   const historyJobs = allJobs ?? []
@@ -512,6 +523,7 @@ export default function Sync() {
                           <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Processed</th>
                           <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Updated</th>
                           <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Changes</th>
+                          <th className="px-4 py-3 w-10"></th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
@@ -552,10 +564,25 @@ export default function Sync() {
                                 <td className="px-4 py-3 text-right font-mono text-xs font-medium text-brand-600">
                                   {job.changes_detected.toLocaleString()}
                                 </td>
+                                <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                                  {isActive && (
+                                    <button
+                                      onClick={() => cancelMutation.mutate(job.id)}
+                                      disabled={cancelMutation.isPending}
+                                      title="Cancel job"
+                                      className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-50 transition-colors"
+                                    >
+                                      {cancelMutation.isPending
+                                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                                        : <StopCircle className="w-4 h-4" />
+                                      }
+                                    </button>
+                                  )}
+                                </td>
                               </tr>
                               {isExpanded && (
                                 <tr>
-                                  <td colSpan={9} className="p-0">
+                                  <td colSpan={10} className="p-0">
                                     <JobLogPanel jobId={job.id} isActive={isActive} />
                                   </td>
                                 </tr>

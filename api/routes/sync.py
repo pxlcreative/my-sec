@@ -148,6 +148,41 @@ def get_sync_job(job_id: int, db: Session = Depends(get_db)) -> SyncStatusEntry:
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@router.post(
+    "/jobs/{job_id}/cancel",
+    summary="Cancel a sync job",
+    description="Revokes the Celery task (if still queued or running) and marks the job cancelled.",
+)
+def cancel_sync_job(job_id: int, db: Session = Depends(get_db)) -> dict:
+    try:
+        job = db.get(SyncJob, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if job.status not in ("pending", "running"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Job is already {job.status} and cannot be cancelled",
+            )
+
+        # Revoke the Celery task if we have the task ID
+        task_id = (job.results or {}).get("task_id")
+        if task_id:
+            from celery_tasks.app import app as celery_app
+            celery_app.control.revoke(task_id, terminate=True, signal="SIGTERM")
+            log.info("cancel_sync_job: revoked task %s for job %d", task_id, job_id)
+
+        job.status = "cancelled"
+        job.completed_at = datetime.now(timezone.utc)
+        db.commit()
+
+        return {"job_id": job_id, "status": "cancelled"}
+    except HTTPException:
+        raise
+    except Exception:
+        log.error("cancel_sync_job(%s) error\n%s", job_id, traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @router.post("/trigger", status_code=202)
 def trigger_monthly_sync(
     month_str: str | None = None,
@@ -172,6 +207,13 @@ def trigger_monthly_sync(
     db.refresh(job)
 
     task = monthly_pdf_sync.delay(month_str, job_id=job.id)
+
+    # Store the Celery task ID so the cancel endpoint can revoke it
+    from sqlalchemy.orm.attributes import flag_modified
+    job.results = {"task_id": task.id}
+    flag_modified(job, "results")
+    db.commit()
+
     return {
         "status": "accepted",
         "task_id": task.id,
