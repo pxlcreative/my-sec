@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -28,6 +28,7 @@ export default function Search() {
   const [debouncedQ, setDebouncedQ] = useState(searchParams.get('q') ?? '')
   const [sorting, setSorting] = useState<SortingState>([])
   const [platformDropdownOpen, setPlatformDropdownOpen] = useState(false)
+  const platformDropdownRef = useRef<HTMLDivElement>(null)
 
   const state = searchParams.get('state') ?? ''
   const aumMin = searchParams.get('aum_min') ?? ''
@@ -53,6 +54,17 @@ export default function Search() {
     }, 300)
     return () => clearTimeout(timer)
   }, [inputValue, setSearchParams])
+
+  useEffect(() => {
+    if (!platformDropdownOpen) return
+    function handleClick(e: MouseEvent) {
+      if (platformDropdownRef.current && !platformDropdownRef.current.contains(e.target as Node)) {
+        setPlatformDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [platformDropdownOpen])
 
   const queryParams: Record<string, unknown> = {
     page,
@@ -246,7 +258,7 @@ export default function Search() {
           {platforms && platforms.length > 0 && (
             <div className="mb-2">
               <label className="block text-xs font-medium text-gray-600 mb-1">Platforms</label>
-              <div className="relative">
+              <div className="relative" ref={platformDropdownRef}>
                 <button
                   type="button"
                   onClick={() => setPlatformDropdownOpen((o) => !o)}
