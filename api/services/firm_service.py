@@ -102,15 +102,20 @@ def list_firms(
         ).distinct()
     if filters.search_query:
         q = filters.search_query.strip()
-        tsquery = func.plainto_tsquery("english", q)
-        stmt = stmt.where(
-            or_(
-                func.to_tsvector("english", Firm.legal_name).op("@@")(tsquery),
-                func.to_tsvector(
-                    "english", func.coalesce(Firm.business_name, "")
-                ).op("@@")(tsquery),
+        # Build a prefix tsquery: each token gets :* so "finequi" matches "finequities".
+        # Use the 'simple' dictionary (no stemming) so partial words aren't stripped.
+        words = [w for w in q.split() if w]
+        if words:
+            tsquery_str = " & ".join(f"{w}:*" for w in words)
+            tsquery = func.to_tsquery("simple", tsquery_str)
+            stmt = stmt.where(
+                or_(
+                    func.to_tsvector("simple", Firm.legal_name).op("@@")(tsquery),
+                    func.to_tsvector("simple", func.coalesce(Firm.business_name, "")).op("@@")(tsquery),
+                    Firm.legal_name.ilike(f"%{q}%"),
+                    Firm.business_name.ilike(f"%{q}%"),
+                )
             )
-        )
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total: int = session.scalar(count_stmt) or 0
