@@ -53,18 +53,16 @@ class DatabaseScheduler(PersistentScheduler):
         active_names: set[str] = set()
 
         for row in rows:
-            entry = self.Entry.from_entry(
-                row.name,
-                entry={
-                    "task": row.task,
-                    "schedule": crontab(
-                        minute=row.minute,
-                        hour=row.hour,
-                        day_of_month=row.day_of_month,
-                        month_of_year=row.month_of_year,
-                        day_of_week=row.day_of_week,
-                    ),
-                },
+            entry = self.Entry(
+                name=row.name,
+                task=row.task,
+                schedule=crontab(
+                    minute=row.minute,
+                    hour=row.hour,
+                    day_of_month=row.day_of_month,
+                    month_of_year=row.month_of_year,
+                    day_of_week=row.day_of_week,
+                ),
                 app=self.app,
             )
             self.data[row.name] = entry
