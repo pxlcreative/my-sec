@@ -42,7 +42,11 @@ _BROCHURE_DOWNLOAD_URL = (
     "crd_iapd_Brochure.aspx?BRCHR_VRSN_ID={version_id}"
 )
 
-_HEADERS = {"User-Agent": "MySEC/1.0 (self-hosted; research use)"}
+_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Referer": "https://adviserinfo.sec.gov/",
+    "Accept": "application/pdf,*/*",
+}
 _SLEEP_BETWEEN = 0.5
 _MAX_RETRIES = 5
 _RETRY_BACKOFF = 1.0
