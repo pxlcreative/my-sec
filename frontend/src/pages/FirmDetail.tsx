@@ -486,7 +486,16 @@ function BrochuresTab({
             {brochures.map((b) => (
               <tr key={b.brochure_version_id} className="hover:bg-gray-50">
                 <td className="px-4 py-2">{formatDate(b.date_submitted)}</td>
-                <td className="px-4 py-2">{b.brochure_name ?? '—'}</td>
+                <td className="px-4 py-2">
+                  <a
+                    href={`/api/firms/${crd}/brochures/${b.brochure_version_id}/download`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-brand-600 hover:text-brand-700 hover:underline"
+                  >
+                    {b.brochure_name ?? `Brochure ${b.brochure_version_id}`}
+                  </a>
+                </td>
                 <td className="px-4 py-2 font-mono text-xs">{b.source_month ?? '—'}</td>
                 <td className="px-4 py-2 text-sm">
                   {b.file_size_bytes

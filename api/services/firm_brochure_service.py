@@ -124,7 +124,7 @@ def fetch_and_store_firm_brochures(crd: int, db: Session) -> int:
             brochure_version_id=version_id,
             brochure_name=b.get("name"),
             date_submitted=submit_date,
-            source_month=None,
+            source_month=datetime.now(timezone.utc).strftime("%Y-%m"),
             file_path=uri,
             file_size_bytes=len(data),
             downloaded_at=datetime.now(timezone.utc),
