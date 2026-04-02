@@ -110,7 +110,7 @@ export default function Alerts() {
 
   const { data: rules } = useQuery({
     queryKey: ['alert-rules-all'],
-    queryFn: () => getAlertRules({ active_only: false } as Record<string, unknown>),
+    queryFn: () => getAlertRules(),
   })
 
   const activeCount = rules?.filter((r) => r.active).length ?? 0
@@ -497,7 +497,7 @@ function EventsTab({ rules }: { rules: AlertRuleOut[] }) {
   const { data: page, isLoading } = useQuery({
     queryKey: ['alert-events', apiParams],
     queryFn: () => getAlertEvents(apiParams),
-    select: (data) => data as AlertEventOut[],
+    select: (data) => (Array.isArray(data) ? data : []) as AlertEventOut[],
   })
 
   // Accumulate pages for load-more
@@ -510,7 +510,7 @@ function EventsTab({ rules }: { rules: AlertRuleOut[] }) {
   }, [page])
 
   // Keep allEvents in sync so load-more works
-  useMemo(() => { if (page) setAllEvents(events) }, [events, page])
+  useMemo(() => { if (page) setAllEvents(events) }, [page])
 
   // Client-side filtering
   const filtered = useMemo(() => {
@@ -782,6 +782,13 @@ function EventsTab({ rules }: { rules: AlertRuleOut[] }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
+                      {!isLoading && filtered.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="py-10 text-center text-sm text-gray-400">
+                            No events match your current filters
+                          </td>
+                        </tr>
+                      )}
                       {filtered.map((event) => (
                         <tr key={event.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">{formatDate(event.fired_at)}</td>

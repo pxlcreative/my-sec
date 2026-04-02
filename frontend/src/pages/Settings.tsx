@@ -17,7 +17,7 @@ export default function Settings() {
   const [showSecrets, setShowSecrets] = useState(false)
   const [testResult, setTestResult] = useState<StorageTestResult | null>(null)
 
-  const { data: current, isLoading, error } = useQuery({
+  const { data: current, isLoading, error, refetch } = useQuery({
     queryKey: ['storage-settings'],
     queryFn: getStorageSettings,
   })
@@ -61,8 +61,14 @@ export default function Settings() {
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
-        Failed to load settings.
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm flex items-center justify-between">
+        <span>Failed to load settings. {error instanceof Error ? error.message : ''}</span>
+        <button
+          onClick={() => refetch()}
+          className="ml-4 px-3 py-1 text-xs border border-red-300 rounded hover:bg-red-100"
+        >
+          Retry
+        </button>
       </div>
     )
   }

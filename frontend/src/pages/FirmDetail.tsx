@@ -12,6 +12,7 @@ import {
   Legend,
 } from 'recharts'
 import { ArrowLeft, Download, ExternalLink, FileText, Plus, X } from 'lucide-react'
+import { Button } from '../components/Button'
 import {
   getFirm,
   getFirmHistory,
@@ -178,20 +179,12 @@ export default function FirmDetail() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleDownloadDDQ}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700"
-          >
-            <Download className="w-4 h-4" />
+          <Button onClick={handleDownloadDDQ} size="sm" icon={<Download className="w-4 h-4" />}>
             DDQ Excel
-          </button>
-          <button
-            onClick={handleDownloadBrochure}
-            className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700"
-          >
-            <FileText className="w-4 h-4" />
+          </Button>
+          <Button onClick={handleDownloadBrochure} variant="outline" size="sm" icon={<FileText className="w-4 h-4" />}>
             Latest Brochure
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -585,14 +578,9 @@ function PlatformTagsTab({
                 <option key={p.id} value={String(p.id)}>{p.name}</option>
               ))}
             </select>
-            <button
-              onClick={onAdd}
-              disabled={!selectedPlatformId || isAdding}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm rounded-md hover:bg-brand-700 disabled:opacity-50"
-            >
-              <Plus className="w-4 h-4" />
+            <Button onClick={onAdd} disabled={!selectedPlatformId || isAdding} size="sm" icon={<Plus className="w-4 h-4" />}>
               Add
-            </button>
+            </Button>
           </div>
         )}
       </div>

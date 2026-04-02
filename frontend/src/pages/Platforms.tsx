@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Tag, Eye, Loader2, Trash2, X, Check, FileText } from 'lucide-react'
+import { Button } from '../components/Button'
 import { getPlatforms, createPlatform, updatePlatform, deletePlatform } from '../api/client'
 import { Skeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
@@ -128,12 +129,15 @@ export default function Platforms() {
                   <p className="text-sm text-gray-500 leading-relaxed mb-3">{platform.description}</p>
                 )}
                 <label className="flex items-center gap-2 cursor-pointer select-none mt-2 mb-1">
-                  <div
+                  <button
+                    role="switch"
+                    aria-checked={platform.save_brochures}
+                    aria-label="Save brochure PDFs"
                     onClick={() => updateMutation.mutate({ id: platform.id, save_brochures: !platform.save_brochures })}
-                    className={`relative w-8 h-4 rounded-full transition-colors ${platform.save_brochures ? 'bg-brand-600' : 'bg-gray-300'}`}
+                    className={`relative w-8 h-4 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-1 ${platform.save_brochures ? 'bg-brand-600' : 'bg-gray-300'}`}
                   >
                     <span className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${platform.save_brochures ? 'translate-x-4' : 'translate-x-0'}`} />
-                  </div>
+                  </button>
                   <span className="text-xs text-gray-500 flex items-center gap-1">
                     <FileText className="w-3 h-3" />
                     {platform.save_brochures ? 'Saving PDFs' : 'Not saving PDFs'}
@@ -186,28 +190,27 @@ export default function Platforms() {
             />
           </div>
           <label className="flex items-center gap-3 cursor-pointer select-none">
-            <div
+            <button
+              role="switch"
+              aria-checked={saveBrochures}
+              aria-label="Save brochure PDFs"
               onClick={() => setSaveBrochures(!saveBrochures)}
-              className={`relative w-9 h-5 rounded-full transition-colors ${saveBrochures ? 'bg-brand-600' : 'bg-gray-300'}`}
+              className={`relative w-9 h-5 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-1 ${saveBrochures ? 'bg-brand-600' : 'bg-gray-300'}`}
             >
               <span
                 className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${saveBrochures ? 'translate-x-4' : 'translate-x-0'}`}
               />
-            </div>
+            </button>
             <span className="text-sm text-gray-700">Save Part 2 brochure PDFs for firms on this platform</span>
           </label>
-          <button
+          <Button
             onClick={() => createMutation.mutate()}
-            disabled={!name.trim() || createMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
+            disabled={!name.trim()}
+            loading={createMutation.isPending}
+            icon={<Plus className="w-4 h-4" />}
           >
-            {createMutation.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Plus className="w-4 h-4" />
-            )}
             Create Platform
-          </button>
+          </Button>
         </div>
       </div>
     </div>

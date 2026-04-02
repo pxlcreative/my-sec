@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Download, Save, Loader2, CheckCircle, XCircle, Clock } from 'lucide-react'
+import { Download, Save, Loader2 } from 'lucide-react'
+import { Button } from '../components/Button'
 import {
   startExport,
   getExportJob,
@@ -9,6 +10,7 @@ import {
   getPlatforms,
 } from '../api/client'
 import { Skeleton } from '../components/Skeleton'
+import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/Toast'
 import { formatDate, US_STATES, DEFAULT_EXPORT_FIELDS } from '../utils'
 import type { ExportJobOut, ExportTemplateOut } from '../types'
@@ -19,22 +21,6 @@ const FORMAT_OPTIONS = [
   { value: 'xlsx', label: 'Excel (XLSX)' },
 ]
 
-function JobStatusBadge({ status }: { status: string }) {
-  const config: Record<string, { icon: React.ReactNode; className: string }> = {
-    complete: { icon: <CheckCircle className="w-4 h-4" />, className: 'text-green-600' },
-    failed: { icon: <XCircle className="w-4 h-4" />, className: 'text-red-600' },
-    running: { icon: <Loader2 className="w-4 h-4 animate-spin" />, className: 'text-brand-600' },
-    pending: { icon: <Clock className="w-4 h-4" />, className: 'text-yellow-600' },
-    expired: { icon: <XCircle className="w-4 h-4" />, className: 'text-gray-400' },
-  }
-  const c = config[status] ?? config.pending
-  return (
-    <span className={`inline-flex items-center gap-1 text-sm font-medium ${c.className}`}>
-      {c.icon}
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
-  )
-}
 
 export default function Export() {
   const queryClient = useQueryClient()
@@ -117,7 +103,7 @@ export default function Export() {
         addToast('Export job queued', 'success')
       } else if (r.download_url || r.status === 'complete') {
         // Sync response — trigger download
-        const jobResult = r as ExportJobOut
+        const jobResult = r as unknown as ExportJobOut
         if (jobResult.file_path) {
           window.open(`/api/export/jobs/${jobResult.id}/download`, '_blank')
         }
@@ -376,20 +362,24 @@ export default function Export() {
                   className="w-full text-sm border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-brand-600 outline-none"
                 />
                 <div className="flex gap-2">
-                  <button
+                  <Button
+                    className="flex-1 justify-center"
+                    size="xs"
                     onClick={() => saveTemplateMutation.mutate()}
-                    disabled={!templateName.trim() || saveTemplateMutation.isPending}
-                    className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-brand-600 text-white rounded text-xs font-medium hover:bg-brand-700 disabled:opacity-50"
+                    disabled={!templateName.trim()}
+                    loading={saveTemplateMutation.isPending}
+                    icon={<Save className="w-3 h-3" />}
                   >
-                    {saveTemplateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
                     Save
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    className="flex-1 justify-center"
+                    size="xs"
+                    variant="outline"
                     onClick={() => { setShowSaveForm(false); setTemplateName('') }}
-                    className="flex-1 px-3 py-1.5 text-xs border border-gray-300 rounded text-gray-600 hover:bg-gray-50"
                   >
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -402,7 +392,7 @@ export default function Export() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-500">Status</span>
-                  <JobStatusBadge status={activeJob.status} />
+                  <StatusBadge status={activeJob.status} />
                 </div>
                 {activeJob.row_count != null && (
                   <div className="flex items-center justify-between">

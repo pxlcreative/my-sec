@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, CheckCircle, XCircle, Loader2, ChevronRight } from 'lucide-react'
+import { Upload, CheckCircle, XCircle, Loader2, ChevronRight, Info } from 'lucide-react'
+import { Button } from '../components/Button'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { bulkMatch, getMatchJob, bulkTag, getPlatforms } from '../api/client'
 import { StatusBadge } from '../components/StatusBadge'
@@ -253,6 +254,14 @@ export default function BulkMatch() {
         {step === 1 && (
           <div className="space-y-6">
             <h2 className="text-lg font-semibold text-gray-800">Upload CSV File</h2>
+            <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+              <Info className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>
+                Matching runs against loaded SEC firm data. If no data has been loaded yet, all rows will return{' '}
+                <code className="bg-blue-100 px-1 rounded text-xs font-mono">no_match</code>.
+                Run <code className="bg-blue-100 px-1 rounded text-xs font-mono">make load-data</code> first.
+              </span>
+            </div>
             <div
               {...getRootProps()}
               className={`border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors ${
@@ -325,13 +334,9 @@ export default function BulkMatch() {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setStep(2)}
-                  disabled={!nameCol}
-                  className="px-5 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
-                >
+                <Button onClick={() => setStep(2)} disabled={!nameCol}>
                   Next: Configure
-                </button>
+                </Button>
               </div>
             )}
           </div>

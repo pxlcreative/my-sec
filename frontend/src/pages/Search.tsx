@@ -377,13 +377,9 @@ export default function Search() {
             <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono">make load-data</code>{' '}
             from the project root, or see the README for step-by-step instructions.
           </p>
-          <a
-            href="https://github.com/anthropics/claude-code"
-            className="inline-flex items-center gap-1 text-sm text-brand-600 hover:text-brand-700 font-medium"
-            onClick={(e) => { e.preventDefault(); window.open('/README.md', '_blank') }}
-          >
-            View Setup Guide →
-          </a>
+          <p className="text-sm text-brand-600 font-medium">
+            Run <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono">make load-data</code> from the project root to begin.
+          </p>
         </div>
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
