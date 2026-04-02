@@ -14,7 +14,7 @@ from schemas.firm import SyncStatusEntry
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/sync", tags=["sync"])
 
-_JOB_TYPES = ["bulk_csv", "monthly_data", "live_incremental", "aum_history"]
+_JOB_TYPES = ["bulk_csv", "monthly_data", "brochure_sync", "live_incremental", "aum_history"]
 
 
 # ---------------------------------------------------------------------------
