@@ -33,9 +33,9 @@ const RULE_TYPES = [
 ]
 
 const DELIVERY_TYPES = [
+  { value: 'log', label: 'Log Only' },
   { value: 'email', label: 'Email' },
   { value: 'webhook', label: 'Webhook' },
-  { value: 'log', label: 'Log Only' },
 ]
 
 const DELIVERY_STATUSES = ['sent', 'failed', 'pending', 'test', 'logged']
@@ -157,7 +157,7 @@ function RulesTab({ rules, activeCount }: { rules: AlertRuleOut[] | undefined; a
   const [form, setForm] = useState({
     label: '',
     rule_type: 'deregistration',
-    delivery: 'email',
+    delivery: 'log',
     delivery_target: '',
     threshold_pct: '',
     field_path: '',
@@ -188,7 +188,7 @@ function RulesTab({ rules, activeCount }: { rules: AlertRuleOut[] | undefined; a
       queryClient.invalidateQueries({ queryKey: ['alert-rules-all'] })
       addToast(`Rule "${rule.label}" created`, 'success')
       setShowForm(false)
-      setForm({ label: '', rule_type: 'deregistration', delivery: 'email', delivery_target: '', threshold_pct: '', field_path: '', platform_ids: [] })
+      setForm({ label: '', rule_type: 'deregistration', delivery: 'log', delivery_target: '', threshold_pct: '', field_path: '', platform_ids: [] })
     },
     onError: () => addToast('Failed to create rule', 'error'),
   })
