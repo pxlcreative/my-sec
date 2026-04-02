@@ -7,6 +7,7 @@ PUT    /api/alerts/rules/{id}         → update rule
 DELETE /api/alerts/rules/{id}         → delete rule (sets active=False)
 GET    /api/alerts/events             → recent events with optional filters
 POST   /api/alerts/rules/{id}/test    → fire a test delivery (dry run)
+POST   /api/alerts/rules/{id}/evaluate → batch-evaluate a rule against current data
 """
 import logging
 from datetime import datetime, timezone
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session
 from db import get_db
 from models.alert import AlertEvent, AlertRule
 from schemas.alert import (
+    AlertEvaluateResponse,
     AlertEventOut,
     AlertRuleCreate,
     AlertRuleOut,
@@ -193,4 +195,30 @@ def test_rule_delivery(rule_id: int, db: DbDep = None):
         delivery_target=rule.delivery_target,
         success=success,
         message=message,
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/alerts/rules/{id}/evaluate
+# ---------------------------------------------------------------------------
+
+@router.post("/rules/{rule_id}/evaluate", response_model=AlertEvaluateResponse)
+def evaluate_rule_now(rule_id: int, db: DbDep = None):
+    """
+    Batch-evaluate a single rule against the current state of all in-scope firms.
+    Returns the count of new AlertEvents fired.
+
+    Runs synchronously — suitable for on-demand use after rule creation.
+    Deduplication prevents re-firing for changes already alerted.
+    """
+    from services.alert_service import evaluate_rule_batch
+
+    rule = _get_rule_or_404(rule_id, db)
+    fired = evaluate_rule_batch(rule, db)
+
+    return AlertEvaluateResponse(
+        rule_id=rule.id,
+        fired=fired,
+        rule_type=rule.rule_type,
+        label=rule.label,
     )

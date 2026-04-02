@@ -1,15 +1,19 @@
 """
 Module G – Alert rules engine and multi-channel delivery.
 
-Public entry point: evaluate_alerts_for_firm(crd, changes, db)
+Public entry points:
+  evaluate_alerts_for_firm(crd, changes, db)  — per-firm streaming path
+  evaluate_rule_batch(rule, db) -> int         — batch evaluation for one rule
 """
+from __future__ import annotations
+
 import logging
 import smtplib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 
 import requests
-from sqlalchemy import and_, extract, desc, or_, select
+from sqlalchemy import and_, desc, exists, extract, or_, select
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -30,7 +34,6 @@ def get_active_rules_for_platforms(platform_ids: list[int], db: Session):
       - rule.platform_ids IS NULL (global rule)
     """
     from models.alert import AlertRule
-    from sqlalchemy.dialects.postgresql import ARRAY
     import sqlalchemy as sa
 
     stmt = select(AlertRule).where(AlertRule.active.is_(True))
@@ -51,7 +54,47 @@ def get_active_rules_for_platforms(platform_ids: list[int], db: Session):
 
 
 # ---------------------------------------------------------------------------
-# b. Deregistration evaluator
+# b. Scope helper
+# ---------------------------------------------------------------------------
+
+def get_inscope_crds(rule, db: Session) -> list[int] | None:
+    """
+    Return CRD numbers in scope for this rule, or None for global (all firms).
+
+    Logic:
+      - If rule.crd_numbers is set, use those directly; if rule.platform_ids is
+        also set, intersect with platform CRDs.
+      - Elif rule.platform_ids is set, return all CRDs on those platforms.
+      - Else (both null): return None — global, caller handles all firms.
+    """
+    from models.platform import FirmPlatform
+
+    if rule.crd_numbers:
+        if rule.platform_ids:
+            platform_crds = set(
+                db.scalars(
+                    select(FirmPlatform.crd_number).where(
+                        FirmPlatform.platform_id.in_(rule.platform_ids)
+                    )
+                ).all()
+            )
+            return [c for c in rule.crd_numbers if c in platform_crds]
+        return list(rule.crd_numbers)
+
+    if rule.platform_ids:
+        return list(
+            db.scalars(
+                select(FirmPlatform.crd_number)
+                .where(FirmPlatform.platform_id.in_(rule.platform_ids))
+                .distinct()
+            ).all()
+        )
+
+    return None  # global
+
+
+# ---------------------------------------------------------------------------
+# c. Deregistration evaluator (streaming)
 # ---------------------------------------------------------------------------
 
 def evaluate_deregistration(rule, firm, changes: list[dict]) -> bool:
@@ -63,7 +106,7 @@ def evaluate_deregistration(rule, firm, changes: list[dict]) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# c. AUM decline evaluator
+# d. AUM decline evaluator (streaming + batch)
 # ---------------------------------------------------------------------------
 
 def evaluate_aum_decline(rule, firm, db: Session) -> tuple[bool, dict]:
@@ -106,13 +149,25 @@ def evaluate_aum_decline(rule, firm, db: Session) -> tuple[bool, dict]:
 
 
 # ---------------------------------------------------------------------------
-# d. Alert firing
+# e. Alert firing
 # ---------------------------------------------------------------------------
 
-def fire_alert(rule, firm, extra_data: dict, db: Session) -> None:
-    """Insert AlertEvent and dispatch via configured delivery channel."""
+def fire_alert(
+    rule,
+    firm,
+    extra_data: dict,
+    db: Session,
+    firm_change_id: int | None = None,
+):
+    """
+    Insert AlertEvent and dispatch via configured delivery channel.
+
+    Returns the AlertEvent on success, or None if a duplicate was detected
+    (integrity error on the partial unique index).
+    """
     from models.alert import AlertEvent
     from models.platform import FirmPlatform, PlatformDefinition
+    from sqlalchemy.exc import IntegrityError
 
     # Resolve a representative platform name for the event record
     platform_name: str | None = None
@@ -142,9 +197,19 @@ def fire_alert(rule, firm, extra_data: dict, db: Session) -> None:
         platform_name=platform_name,
         fired_at=now,
         delivery_status="pending",
+        firm_change_id=firm_change_id,
     )
     db.add(event)
-    db.flush()  # get event.id before delivery attempt
+
+    try:
+        db.flush()  # get event.id; triggers unique index check
+    except IntegrityError:
+        db.rollback()
+        log.debug(
+            "fire_alert: duplicate suppressed for rule_id=%d firm_change_id=%s",
+            rule.id, firm_change_id,
+        )
+        return None
 
     if rule.delivery == "in_app":
         event.delivery_status = "sent"
@@ -159,10 +224,11 @@ def fire_alert(rule, firm, extra_data: dict, db: Session) -> None:
         "fire_alert: rule_id=%d crd=%d rule_type=%s delivery=%s status=%s",
         rule.id, firm.crd_number, rule.rule_type, rule.delivery, event.delivery_status,
     )
+    return event
 
 
 # ---------------------------------------------------------------------------
-# e. Email delivery
+# f. Email delivery
 # ---------------------------------------------------------------------------
 
 def _build_email_body(rule, firm, extra_data: dict) -> tuple[str, str]:
@@ -230,7 +296,7 @@ def send_alert_email(rule, firm, extra_data: dict, event, db: Session) -> None:
 
 
 # ---------------------------------------------------------------------------
-# f. Webhook delivery
+# g. Webhook delivery
 # ---------------------------------------------------------------------------
 
 def send_alert_webhook(rule, firm, extra_data: dict, event, db: Session) -> None:
@@ -273,7 +339,7 @@ def send_alert_webhook(rule, firm, extra_data: dict, event, db: Session) -> None
 
 
 # ---------------------------------------------------------------------------
-# g. Top-level evaluator
+# h. Per-firm streaming evaluator (called from firm_refresh_service)
 # ---------------------------------------------------------------------------
 
 def evaluate_alerts_for_firm(crd: int, changes: list[dict], db: Session) -> None:
@@ -281,7 +347,8 @@ def evaluate_alerts_for_firm(crd: int, changes: list[dict], db: Session) -> None
     Evaluate all active alert rules against a just-refreshed firm.
     Called after change detection when diffs is non-empty.
     """
-    from models.firm import Firm
+    from models.alert import AlertEvent
+    from models.firm import Firm, FirmChange
     from models.platform import FirmPlatform
 
     firm: Firm | None = db.get(Firm, crd)
@@ -299,21 +366,254 @@ def evaluate_alerts_for_firm(crd: int, changes: list[dict], db: Session) -> None
     if not rules:
         return
 
+    # Build field_path → FirmChange.id map from the just-flushed change rows.
+    # save_snapshot_and_changes() calls db.flush() so IDs are available without commit.
+    changed_paths = {c["field_path"] for c in changes}
+    recent_changes: dict[str, int] = {}
+    if changed_paths:
+        rows = db.execute(
+            select(FirmChange.field_path, FirmChange.id)
+            .where(
+                FirmChange.crd_number == crd,
+                FirmChange.field_path.in_(changed_paths),
+            )
+            .order_by(desc(FirmChange.detected_at))
+        ).all()
+        for field_path, fc_id in rows:
+            if field_path not in recent_changes:
+                recent_changes[field_path] = fc_id
+
     log.debug("evaluate_alerts_for_firm: CRD %d — %d rule(s) to check", crd, len(rules))
 
     for rule in rules:
         try:
             if rule.rule_type == "deregistration":
                 if evaluate_deregistration(rule, firm, changes):
-                    fire_alert(rule, firm, {}, db)
+                    fc_id = recent_changes.get("registration_status")
+                    fire_alert(rule, firm, {}, db, firm_change_id=fc_id)
 
             elif rule.rule_type == "aum_decline_pct":
                 triggered, extra = evaluate_aum_decline(rule, firm, db)
                 if triggered:
-                    fire_alert(rule, firm, extra, db)
+                    fire_alert(rule, firm, extra, db, firm_change_id=None)
+
+            elif rule.rule_type == "field_change" and rule.field_path:
+                if any(c["field_path"] == rule.field_path for c in changes):
+                    fc_id = recent_changes.get(rule.field_path)
+                    fire_alert(rule, firm, {}, db, firm_change_id=fc_id)
 
         except Exception as exc:
             log.exception(
                 "evaluate_alerts_for_firm: error evaluating rule %d for CRD %d: %s",
                 rule.id, crd, exc,
             )
+
+
+# ---------------------------------------------------------------------------
+# i. Batch evaluators
+# ---------------------------------------------------------------------------
+
+def evaluate_deregistration_batch(rule, db: Session) -> int:
+    """
+    Batch deregistration evaluation against current firm states.
+    Returns count of new AlertEvents fired.
+
+    Part A: Firms with a FirmChange record setting status to Withdrawn that
+            is not yet linked to an AlertEvent for this rule.
+    Part B: Firms currently Withdrawn with no FirmChange record at all
+            (pre-change-tracking era) that have never triggered this rule.
+    """
+    from models.alert import AlertEvent
+    from models.firm import Firm, FirmChange
+
+    fired = 0
+    inscope = get_inscope_crds(rule, db)
+
+    # --- Part A: change-anchored ---
+    stmt = (
+        select(FirmChange)
+        .join(Firm, Firm.crd_number == FirmChange.crd_number)
+        .where(
+            FirmChange.field_path == "registration_status",
+            FirmChange.new_value == "Withdrawn",
+            Firm.registration_status == "Withdrawn",
+            ~exists().where(
+                and_(
+                    AlertEvent.rule_id == rule.id,
+                    AlertEvent.firm_change_id == FirmChange.id,
+                )
+            ),
+        )
+        .order_by(desc(FirmChange.detected_at))
+    )
+    if inscope is not None:
+        stmt = stmt.where(FirmChange.crd_number.in_(inscope))
+
+    changes = list(db.scalars(stmt).all())
+
+    # Keep only the most recent change per CRD
+    seen_crds: set[int] = set()
+    for fc in changes:
+        if fc.crd_number in seen_crds:
+            continue
+        seen_crds.add(fc.crd_number)
+        firm = db.get(Firm, fc.crd_number)
+        if firm is None:
+            continue
+        result = fire_alert(rule, firm, {}, db, firm_change_id=fc.id)
+        if result is not None:
+            fired += 1
+
+    # --- Part B: legacy fallback (no FirmChange record) ---
+    stmt_fallback = (
+        select(Firm)
+        .where(
+            Firm.registration_status == "Withdrawn",
+            ~exists().where(
+                and_(
+                    FirmChange.crd_number == Firm.crd_number,
+                    FirmChange.field_path == "registration_status",
+                )
+            ),
+            ~exists().where(
+                and_(
+                    AlertEvent.rule_id == rule.id,
+                    AlertEvent.crd_number == Firm.crd_number,
+                )
+            ),
+        )
+    )
+    if inscope is not None:
+        stmt_fallback = stmt_fallback.where(Firm.crd_number.in_(inscope))
+
+    for firm in db.scalars(stmt_fallback).all():
+        result = fire_alert(rule, firm, {}, db, firm_change_id=None)
+        if result is not None:
+            fired += 1
+
+    return fired
+
+
+def evaluate_aum_decline_batch(rule, db: Session) -> int:
+    """
+    Batch AUM decline evaluation. Returns count of new AlertEvents fired.
+    Deduplication: skip firms already alerted for this rule within the past year.
+    Processes in batches of 500 to avoid loading all Firm objects at once.
+    """
+    from models.alert import AlertEvent
+    from models.firm import Firm
+
+    fired = 0
+    inscope = get_inscope_crds(rule, db)
+    one_year_ago = datetime.now(timezone.utc) - timedelta(days=365)
+
+    base_stmt = select(Firm.crd_number).where(Firm.aum_total.is_not(None))
+    if inscope is not None:
+        base_stmt = base_stmt.where(Firm.crd_number.in_(inscope))
+
+    all_crds = list(db.scalars(base_stmt).all())
+
+    _BATCH = 500
+    for i in range(0, len(all_crds), _BATCH):
+        batch_crds = all_crds[i : i + _BATCH]
+
+        already_alerted = set(
+            db.scalars(
+                select(AlertEvent.crd_number).where(
+                    AlertEvent.rule_id == rule.id,
+                    AlertEvent.crd_number.in_(batch_crds),
+                    AlertEvent.fired_at >= one_year_ago,
+                )
+            ).all()
+        )
+
+        for crd in batch_crds:
+            if crd in already_alerted:
+                continue
+            firm = db.get(Firm, crd)
+            if firm is None:
+                continue
+            try:
+                triggered, extra = evaluate_aum_decline(rule, firm, db)
+                if triggered:
+                    result = fire_alert(rule, firm, extra, db, firm_change_id=None)
+                    if result is not None:
+                        fired += 1
+            except Exception as exc:
+                log.exception(
+                    "evaluate_aum_decline_batch: error for CRD %d rule %d: %s",
+                    crd, rule.id, exc,
+                )
+
+    return fired
+
+
+def _evaluate_field_change_batch(rule, db: Session) -> int:
+    """
+    Batch field_change evaluation. Fires for the most recent FirmChange per CRD
+    for rule.field_path, deduplicating via firm_change_id.
+    """
+    from models.alert import AlertEvent
+    from models.firm import Firm, FirmChange
+
+    if not rule.field_path:
+        log.warning("_evaluate_field_change_batch: rule %d has no field_path", rule.id)
+        return 0
+
+    fired = 0
+    inscope = get_inscope_crds(rule, db)
+
+    stmt = (
+        select(FirmChange)
+        .where(
+            FirmChange.field_path == rule.field_path,
+            ~exists().where(
+                and_(
+                    AlertEvent.rule_id == rule.id,
+                    AlertEvent.firm_change_id == FirmChange.id,
+                )
+            ),
+        )
+        .order_by(desc(FirmChange.detected_at))
+    )
+    if inscope is not None:
+        stmt = stmt.where(FirmChange.crd_number.in_(inscope))
+
+    changes = list(db.scalars(stmt).all())
+
+    seen_crds: set[int] = set()
+    for fc in changes:
+        if fc.crd_number in seen_crds:
+            continue
+        seen_crds.add(fc.crd_number)
+        firm = db.get(Firm, fc.crd_number)
+        if firm is None:
+            continue
+        extra = {"old_value": fc.old_value, "new_value": fc.new_value}
+        result = fire_alert(rule, firm, extra, db, firm_change_id=fc.id)
+        if result is not None:
+            fired += 1
+
+    return fired
+
+
+def evaluate_rule_batch(rule, db: Session) -> int:
+    """
+    Dispatch to the appropriate batch evaluator for a single rule.
+    Returns count of AlertEvents fired.
+    """
+    if not rule.active:
+        return 0
+
+    if rule.rule_type == "deregistration":
+        return evaluate_deregistration_batch(rule, db)
+    elif rule.rule_type == "aum_decline_pct":
+        return evaluate_aum_decline_batch(rule, db)
+    elif rule.rule_type == "field_change":
+        return _evaluate_field_change_batch(rule, db)
+    else:
+        log.warning(
+            "evaluate_rule_batch: unknown rule_type=%s for rule %d",
+            rule.rule_type, rule.id,
+        )
+        return 0

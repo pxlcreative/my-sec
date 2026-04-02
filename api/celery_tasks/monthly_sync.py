@@ -127,6 +127,11 @@ def monthly_data_sync(self, job_id: int | None = None) -> dict:
             sync_all_platforms_brochures.delay()
             _log_event("Enqueued per-firm brochure sync for all save_brochures platforms")
 
+            # Evaluate all active alert rules against the freshly-synced firm data
+            from celery_tasks.alert_tasks import batch_evaluate_alerts
+            batch_evaluate_alerts.delay()
+            _log_event("Enqueued batch alert evaluation for all active rules")
+
             return result
 
         except Exception as exc:

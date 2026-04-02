@@ -184,6 +184,11 @@ export async function testAlertRule(id: number): Promise<AlertTestResponse> {
   return response.data
 }
 
+export async function evaluateAlertRule(id: number): Promise<{ rule_id: number; fired: number; rule_type: string; label: string }> {
+  const response = await api.post(`/alerts/rules/${id}/evaluate`)
+  return response.data
+}
+
 // Sync
 export async function getSyncStatus(): Promise<SyncStatusEntry[]> {
   const response = await api.get('/sync/status')

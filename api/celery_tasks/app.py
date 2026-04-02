@@ -21,6 +21,7 @@ app = Celery(
         "celery_tasks.monthly_sync",
         "celery_tasks.refresh_tasks",
         "celery_tasks.brochure_tasks",
+        "celery_tasks.alert_tasks",
     ],
 )
 

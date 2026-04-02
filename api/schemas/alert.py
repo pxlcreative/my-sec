@@ -62,6 +62,7 @@ class AlertEventOut(BaseModel):
     fired_at: datetime.datetime
     delivered_at: datetime.datetime | None
     delivery_status: str | None
+    firm_change_id: int | None = None
 
 
 class AlertTestResponse(BaseModel):
@@ -70,3 +71,10 @@ class AlertTestResponse(BaseModel):
     delivery_target: str | None
     success: bool
     message: str
+
+
+class AlertEvaluateResponse(BaseModel):
+    rule_id: int
+    fired: int
+    rule_type: str
+    label: str

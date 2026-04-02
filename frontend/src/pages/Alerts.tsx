@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Plus, Trash2, Play, Loader2, Bell, BellOff, X, ChevronDown,
+  Plus, Trash2, Play, Loader2, Bell, BellOff, X, ChevronDown, RefreshCw,
 } from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis,
@@ -14,6 +14,7 @@ import {
   deleteAlertRule,
   updateAlertRule,
   testAlertRule,
+  evaluateAlertRule,
   getAlertEvents,
   getPlatforms,
 } from '../api/client'
@@ -164,6 +165,7 @@ function RulesTab({ rules, activeCount }: { rules: AlertRuleOut[] | undefined; a
     platform_ids: [] as number[],
   })
   const [testingId, setTestingId] = useState<number | null>(null)
+  const [evaluatingId, setEvaluatingId] = useState<number | null>(null)
 
   const { data: platforms } = useQuery({ queryKey: ['platforms'], queryFn: getPlatforms })
 
@@ -184,11 +186,18 @@ function RulesTab({ rules, activeCount }: { rules: AlertRuleOut[] | undefined; a
       if (form.platform_ids.length > 0) payload.platform_ids = form.platform_ids
       return createAlertRule(payload)
     },
-    onSuccess: (rule) => {
+    onSuccess: async (rule) => {
       queryClient.invalidateQueries({ queryKey: ['alert-rules-all'] })
-      addToast(`Rule "${rule.label}" created`, 'success')
       setShowForm(false)
       setForm({ label: '', rule_type: 'deregistration', delivery: 'log', delivery_target: '', threshold_pct: '', field_path: '', platform_ids: [] })
+      try {
+        const evalResult = await evaluateAlertRule(rule.id)
+        queryClient.invalidateQueries({ queryKey: ['alert-events'] })
+        const count = evalResult.fired
+        addToast(`Rule "${rule.label}" created. ${count} alert${count === 1 ? '' : 's'} found.`, 'success')
+      } catch {
+        addToast(`Rule "${rule.label}" created`, 'success')
+      }
     },
     onError: () => addToast('Failed to create rule', 'error'),
   })
@@ -218,6 +227,23 @@ function RulesTab({ rules, activeCount }: { rules: AlertRuleOut[] | undefined; a
       addToast('Test request failed', 'error')
     } finally {
       setTestingId(null)
+    }
+  }
+
+  async function handleEvaluate(rule: AlertRuleOut) {
+    setEvaluatingId(rule.id)
+    try {
+      const result = await evaluateAlertRule(rule.id)
+      queryClient.invalidateQueries({ queryKey: ['alert-events'] })
+      const count = result.fired
+      addToast(
+        `Evaluated "${rule.label}": ${count} new alert${count === 1 ? '' : 's'} fired.`,
+        count > 0 ? 'success' : 'info',
+      )
+    } catch {
+      addToast('Evaluation failed', 'error')
+    } finally {
+      setEvaluatingId(null)
     }
   }
 
@@ -401,6 +427,10 @@ function RulesTab({ rules, activeCount }: { rules: AlertRuleOut[] | undefined; a
                   <td className="px-4 py-3 text-gray-400 text-xs">{formatDate(rule.created_at)}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2 justify-end">
+                      <button onClick={() => handleEvaluate(rule)} disabled={evaluatingId === rule.id} title="Evaluate now"
+                        className="p-1.5 rounded text-gray-400 hover:text-green-600 hover:bg-green-50 disabled:opacity-50">
+                        {evaluatingId === rule.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                      </button>
                       <button onClick={() => handleTest(rule)} disabled={testingId === rule.id} title="Send test alert"
                         className="p-1.5 rounded text-gray-400 hover:text-brand-600 hover:bg-brand-50 disabled:opacity-50">
                         {testingId === rule.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}

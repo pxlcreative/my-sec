@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, Integer, Numeric, Text, func
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, Integer, Numeric, Text, func, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,8 +46,18 @@ class AlertEvent(Base):
     delivery_status: Mapped[str | None] = mapped_column(
         Text, server_default="pending"
     )
+    firm_change_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("firm_changes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     __table_args__ = (
         Index("idx_alert_events_rule", "rule_id", "fired_at"),
         Index("idx_alert_events_crd", "crd_number", "fired_at"),
+        Index(
+            "idx_alert_events_rule_change_uq",
+            "rule_id",
+            "firm_change_id",
+            unique=True,
+            postgresql_where=text("firm_change_id IS NOT NULL"),
+        ),
     )
