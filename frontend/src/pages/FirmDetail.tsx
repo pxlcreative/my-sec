@@ -11,7 +11,7 @@ import {
   Tooltip,
   Legend,
 } from 'recharts'
-import { ArrowLeft, Download, FileText, Plus, X } from 'lucide-react'
+import { ArrowLeft, Download, ExternalLink, FileText, Plus, X } from 'lucide-react'
 import {
   getFirm,
   getFirmHistory,
@@ -156,9 +156,15 @@ export default function FirmDetail() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">{firm.legal_name}</h1>
           <div className="flex items-center gap-3 mt-2">
-            <span className="text-sm font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+            <a
+              href={`https://adviserinfo.sec.gov/firm/summary/${firm.crd_number}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-sm font-mono bg-gray-100 text-gray-600 hover:bg-gray-200 px-2 py-0.5 rounded"
+            >
               CRD {firm.crd_number}
-            </span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
             {firm.registration_status && (
               <span className={`text-xs font-medium px-2 py-0.5 rounded ${statusColor}`}>
                 {firm.registration_status}
