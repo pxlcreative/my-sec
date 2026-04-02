@@ -24,6 +24,7 @@ seed-schedules:
 
 load-data:
 	docker compose exec api python scripts/load_bulk_csv.py
+	docker compose exec api python scripts/load_filing_data.py
 	docker compose exec api python scripts/index_firms_to_es.py
 	docker compose exec api python scripts/backfill_annual_aum.py
 

@@ -14,7 +14,7 @@ from schemas.firm import SyncStatusEntry
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/sync", tags=["sync"])
 
-_JOB_TYPES = ["bulk_csv", "monthly_pdf", "live_incremental", "aum_history"]
+_JOB_TYPES = ["bulk_csv", "monthly_data", "monthly_pdf", "live_incremental", "aum_history"]
 
 
 # ---------------------------------------------------------------------------
@@ -95,13 +95,6 @@ def _run_reindex() -> None:
         log.error("Reindex task failed\n%s", traceback.format_exc())
     finally:
         db.close()
-
-
-def _prev_month_str() -> str:
-    now = datetime.now(timezone.utc)
-    if now.month == 1:
-        return f"{now.year - 1}-12"
-    return f"{now.year}-{now.month - 1:02d}"
 
 
 # ---------------------------------------------------------------------------
@@ -185,31 +178,27 @@ def cancel_sync_job(job_id: int, db: Session = Depends(get_db)) -> dict:
 
 @router.post("/trigger", status_code=202)
 def trigger_monthly_sync(
-    month_str: str | None = None,
     db: Session = Depends(get_db),
 ) -> dict:
     """
-    Enqueue an immediate monthly PDF sync Celery task.
+    Enqueue an immediate monthly data sync Celery task.
     Creates a pending SyncJob immediately so the UI shows the job before the worker starts.
-    Optional *month_str* query param (format: "YYYY-MM"); defaults to the previous month.
+    The sync discovers all pending files from reports_metadata.json automatically.
     """
-    from celery_tasks.monthly_sync import monthly_pdf_sync
-
-    target_month = month_str or _prev_month_str()
+    from celery_tasks.monthly_sync import monthly_data_sync
+    from sqlalchemy.orm.attributes import flag_modified
 
     job = SyncJob(
-        job_type="monthly_pdf",
+        job_type="monthly_data",
         status="pending",
-        source_url=f"sec.gov/foia adv-brochures-{target_month}",
+        source_url="reports.adviserinfo.sec.gov/reports/foia/reports_metadata.json",
     )
     db.add(job)
     db.commit()
     db.refresh(job)
 
-    task = monthly_pdf_sync.delay(month_str, job_id=job.id)
+    task = monthly_data_sync.delay(job_id=job.id)
 
-    # Store the Celery task ID so the cancel endpoint can revoke it
-    from sqlalchemy.orm.attributes import flag_modified
     job.results = {"task_id": task.id}
     flag_modified(job, "results")
     db.commit()
@@ -218,8 +207,7 @@ def trigger_monthly_sync(
         "status": "accepted",
         "task_id": task.id,
         "job_id": job.id,
-        "month": target_month,
-        "message": "Monthly PDF sync enqueued. Check /api/sync/status for progress.",
+        "message": "Monthly data sync enqueued. Check /api/sync/status for progress.",
     }
 
 

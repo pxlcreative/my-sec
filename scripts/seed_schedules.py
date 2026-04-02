@@ -18,9 +18,9 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 DEFAULT_SCHEDULES = [
     {
-        "name": "monthly-pdf-sync",
-        "task": "monthly_sync.monthly_pdf_sync",
-        "description": "Monthly ADV Part 2 PDF sync — downloads brochures from SEC",
+        "name": "monthly-data-sync",
+        "task": "monthly_sync.monthly_data_sync",
+        "description": "Monthly data sync — filing data + brochures from reports.adviserinfo.sec.gov",
         "minute": "0",
         "hour": "6",
         "day_of_month": "2",
@@ -51,6 +51,15 @@ def main() -> None:
     try:
         inserted = 0
         skipped = 0
+
+        # Disable the old monthly-pdf-sync schedule if it still exists
+        old = db.scalars(
+            select(CronSchedule).where(CronSchedule.name == "monthly-pdf-sync")
+        ).first()
+        if old:
+            old.enabled = False
+            print(f"  disable monthly-pdf-sync (replaced by monthly-data-sync)")
+
         for entry in DEFAULT_SCHEDULES:
             existing = db.scalars(
                 select(CronSchedule).where(CronSchedule.name == entry["name"])

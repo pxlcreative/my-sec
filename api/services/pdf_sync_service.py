@@ -1,12 +1,16 @@
 """
 Module B1 – Monthly ADV Part 2 PDF download and storage pipeline.
 
-Public entry point: sync_month(month_str, db_session, sync_job_id)
+Public entry points:
+    sync_brochure_file(manifest_entry, db_session, sync_job_id) -> set[int]
+    sync_month(zip_url, source_month, db_session, sync_job_id) -> set[int]
 
-All other functions are helpers used by sync_month (and exposed for testing).
+PDF filenames in the new brochure ZIPs encode all metadata:
+    {CRD}_{BROCHURE_VERSION_ID}_{seq}_{YYYYMMDD}.pdf
+No mapping CSV is present; parse_pdf_filename() extracts (crd, version_id, date_str).
 """
-import csv
-import io
+from __future__ import annotations
+
 import logging
 import re
 import time
@@ -26,79 +30,30 @@ log = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-SEC_FOIA_PAGE = "https://www.sec.gov/foia/docs/form-adv-archive-data.htm"
-SEC_BASE_URL   = "https://www.sec.gov"
-
 BROCHURES_DIR = Path(settings.data_dir) / "brochures"
 ZIPS_DIR      = Path(settings.data_dir) / "zips" / "brochures"
 
-# Regex that matches the ZIP file href in the FOIA page HTML.
-# Captures: YYYY, MM, and optional suffix like "-part3" or "_part03".
-_ZIP_HREF_RE = re.compile(
-    r'href=["\']([^"\']*adv[-_]brochures[-_](\d{4})[-_](\d{2})[^"\']*\.zip)["\']',
-    re.IGNORECASE,
-)
-
-# Candidate column names in the mapping CSV (SEC has varied these over time).
-_CRD_COLS    = ("CRD_NUMBER", "CRD", "File_Number", "FILE_NUMBER")
-_VID_COLS    = ("BROCHURE_VERSION_ID", "Brochure_Version_Id", "VERSION_ID")
-_NAME_COLS   = ("BROCHURE_NAME", "Brochure_Name", "BROCHURENAME")
-_DATE_COLS   = ("SUBMIT_DATE", "Submit_Date", "SUBMITDATE", "DATE_SUBMITTED")
-
-_HTTP_TIMEOUT = 30          # seconds per request chunk
-_RETRY_BACKOFF = 0.5        # seconds between download retries
+_HTTP_TIMEOUT  = 30
+_RETRY_BACKOFF = 0.5
 _MAX_RETRIES   = 5
 _HEADERS = {"User-Agent": "MySEC/1.0 (self-hosted; research use)"}
 
 
 # ---------------------------------------------------------------------------
-# 1. URL discovery
+# 1. PDF filename parser
 # ---------------------------------------------------------------------------
 
-def discover_month_zip_urls(month_str: str) -> list[str]:
+def parse_pdf_filename(filename: str) -> tuple[int, int, str] | None:
     """
-    Fetch the SEC FOIA page HTML and return all ZIP URLs for the target month.
-
-    month_str: "YYYY-MM" e.g. "2025-03"
-    Handles multi-part ZIPs (part1 … part10+).
-    Returns absolute URLs sorted by part number (or just [url] for single-part).
+    Parse '{CRD}_{VERSION_ID}_{seq}_{YYYYMMDD}.pdf' → (crd, version_id, date_str).
+    date_str is in 'YYYYMMDD' format.
+    Returns None if filename doesn't match the expected pattern.
     """
-    year, month = month_str.split("-")
-    log.info("Discovering ZIPs for %s on %s", month_str, SEC_FOIA_PAGE)
-
-    resp = requests.get(SEC_FOIA_PAGE, headers=_HEADERS, timeout=_HTTP_TIMEOUT)
-    if resp.status_code == 403:
-        if "Rate Threshold" in resp.text or "rate" in resp.text.lower():
-            raise RuntimeError(
-                "SEC.gov rate limit exceeded. Wait ~10 minutes before retrying. "
-                "See https://www.sec.gov/developer for SEC access guidelines."
-            )
-        resp.raise_for_status()
-    resp.raise_for_status()
-    html = resp.text
-
-    matched: list[str] = []
-    seen: set[str] = set()
-    for m in _ZIP_HREF_RE.finditer(html):
-        href, yr, mo = m.group(1), m.group(2), m.group(3)
-        if yr == year and mo == month:
-            url = href if href.startswith("http") else SEC_BASE_URL + href
-            if url not in seen:
-                seen.add(url)
-                matched.append(url)
-
-    if not matched:
-        log.warning("No ZIPs found for %s on FOIA page", month_str)
-        return []
-
-    # Sort: single-part (no "part" in name) first, then part1, part2, … part10+
-    def _part_key(url: str) -> int:
-        m = re.search(r"part(\d+)", url, re.IGNORECASE)
-        return int(m.group(1)) if m else 0
-
-    matched.sort(key=_part_key)
-    log.info("Found %d ZIP(s) for %s: %s", len(matched), month_str, matched)
-    return matched
+    name = Path(filename).name
+    m = re.match(r'^(\d+)_(\d+)_\d+_(\d{8})\.pdf$', name, re.IGNORECASE)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2)), m.group(3)
 
 
 # ---------------------------------------------------------------------------
@@ -109,8 +64,8 @@ def download_file(url: str, dest_dir: Path) -> Path:
     """
     Stream-download *url* into *dest_dir*.
 
-    Skips the download if a file of the same name already exists with a
-    non-zero size.  Retries up to _MAX_RETRIES times with exponential backoff.
+    Skips if a file of the same name already exists with a non-zero size.
+    Retries up to _MAX_RETRIES times with exponential backoff.
     Returns the local Path.
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -142,97 +97,22 @@ def download_file(url: str, dest_dir: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# 3. Mapping CSV loader
-# ---------------------------------------------------------------------------
-
-def _find_col(header: list[str], candidates: tuple) -> str | None:
-    """Return the first candidate column name found in *header* (case-insensitive)."""
-    upper = {h.upper(): h for h in header}
-    for c in candidates:
-        if c.upper() in upper:
-            return upper[c.upper()]
-    return None
-
-
-def load_mapping_csv(zip_path: Path) -> list[dict]:
-    """
-    Open *zip_path*, locate the mapping CSV, and return a list of dicts with keys:
-      crd, version_id, brochure_name, submit_date
-    Rows missing crd or version_id are silently skipped.
-    """
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        # Find the mapping CSV — SEC names it IA_ADV_Brochures_YYYYMMDD.csv or similar.
-        csv_names = [
-            n for n in zf.namelist()
-            if n.lower().endswith(".csv")
-            and re.search(r"(adv|brochure)", n, re.IGNORECASE)
-        ]
-        if not csv_names:
-            raise ValueError(f"No mapping CSV found in {zip_path.name}")
-
-        csv_name = csv_names[0]
-        log.info("load_mapping_csv: reading %s from %s", csv_name, zip_path.name)
-
-        with zf.open(csv_name) as raw:
-            text = io.TextIOWrapper(raw, encoding="utf-8-sig", errors="replace")
-            reader = csv.DictReader(text)
-            header = reader.fieldnames or []
-
-            col_crd  = _find_col(list(header), _CRD_COLS)
-            col_vid  = _find_col(list(header), _VID_COLS)
-            col_name = _find_col(list(header), _NAME_COLS)
-            col_date = _find_col(list(header), _DATE_COLS)
-
-            if not col_crd or not col_vid:
-                raise ValueError(
-                    f"Cannot locate CRD or version_id columns in {csv_name}. "
-                    f"Header: {header}"
-                )
-
-            rows = []
-            for row in reader:
-                try:
-                    crd = int(row[col_crd])
-                    vid = int(row[col_vid])
-                except (ValueError, TypeError):
-                    continue
-                rows.append({
-                    "crd":          crd,
-                    "version_id":   vid,
-                    "brochure_name": row.get(col_name, "").strip() if col_name else None,
-                    "submit_date":  row.get(col_date, "").strip()  if col_date else None,
-                })
-
-    log.info("load_mapping_csv: %d rows loaded from %s", len(rows), zip_path.name)
-    return rows
-
-
-# ---------------------------------------------------------------------------
-# 4. PDF extraction
+# 3. PDF extraction and storage
 # ---------------------------------------------------------------------------
 
 def extract_and_store_pdf(
     zip_path: Path,
+    zip_entry_name: str,
     version_id: int,
     crd: int,
-    submit_date: str | None,
+    date_tag: str,
     backend,  # StorageBackend — typed loosely to avoid circular import
 ) -> tuple[str, int]:
     """
-    Extract the PDF whose name contains *version_id* from *zip_path* and
-    store it via *backend*.  Returns (uri, file_size_bytes).
+    Read the PDF at *zip_entry_name* from *zip_path* and store via *backend*.
+    Returns (uri, file_size_bytes). Returns (uri, 0) if already stored.
     """
     from services.storage_backends import make_brochure_key
-
-    # Date suffix for object key
-    date_tag = "00000000"
-    if submit_date:
-        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%Y%m%d"):
-            try:
-                date_tag = datetime.strptime(submit_date, fmt).strftime("%Y%m%d")
-                break
-            except ValueError:
-                continue
 
     key = make_brochure_key(crd, version_id, date_tag)
 
@@ -240,51 +120,35 @@ def extract_and_store_pdf(
         return backend.uri_for(key), 0
 
     with zipfile.ZipFile(zip_path, "r") as zf:
-        # SEC names PDFs like "12345678.pdf" or "documents/12345678.pdf"
-        candidates = [
-            n for n in zf.namelist()
-            if str(version_id) in n and n.lower().endswith(".pdf")
-        ]
-        if not candidates:
-            raise FileNotFoundError(
-                f"PDF for version_id={version_id} not found in {zip_path.name}"
-            )
-        data = zf.read(candidates[0])
+        data = zf.read(zip_entry_name)
 
     backend.put(key, data)
     return backend.uri_for(key), len(data)
 
 
 # ---------------------------------------------------------------------------
-# 5. Existence check
+# 4. Orchestrator — one ZIP file
 # ---------------------------------------------------------------------------
 
-def brochure_already_stored(version_id: int, db_session: Session) -> bool:
-    from models.brochure import AdvBrochure
-    return db_session.scalar(
-        select(AdvBrochure).where(AdvBrochure.brochure_version_id == version_id).limit(1)
-    ) is not None
-
-
-# ---------------------------------------------------------------------------
-# 6. Orchestrator
-# ---------------------------------------------------------------------------
-
-def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> set[int]:
+def sync_month(
+    zip_url: str,
+    source_month: str,
+    db_session: Session,
+    sync_job_id: int,
+) -> set[int]:
     """
-    Full pipeline for one month:
-      discover ZIPs → download each → load mapping CSV → for each row:
-        if not already stored: extract PDF → insert AdvBrochure record
+    Download *zip_url* and store all new brochure PDFs found inside.
+
+    source_month: 'YYYY-MM' string used for AdvBrochure.source_month.
+
+    Returns the set of CRD numbers for which at least one new brochure was stored.
     Updates SyncJob throughout.
     """
     from models.brochure import AdvBrochure
     from models.firm import Firm
     from models.sync_job import SyncJob
-    from sqlalchemy import select
-
-    from services.storage_backends import get_active_backend
-
     from sqlalchemy.orm.attributes import flag_modified
+    from services.storage_backends import get_active_backend
 
     job: SyncJob | None = db_session.get(SyncJob, sync_job_id)
     if job is None:
@@ -311,118 +175,155 @@ def sync_month(month_str: str, db_session: Session, sync_job_id: int) -> set[int
                 j.error_message = message
             db_session.commit()
 
-    _log_event(f"Starting sync for {month_str}")
-    zip_urls = discover_month_zip_urls(month_str)
-    if not zip_urls:
-        _log_event(f"No ZIPs found for {month_str} on SEC FOIA page")
-        _commit_progress(0, 0, f"No ZIPs found for {month_str}")
-        return set()
+    zip_name = zip_url.split("/")[-1]
+    _log_event(f"Downloading {zip_name}…")
 
-    _log_event(f"Found {len(zip_urls)} ZIP(s): {', '.join(u.split('/')[-1] for u in zip_urls)}")
+    try:
+        zip_path = download_file(zip_url, ZIPS_DIR)
+    except RuntimeError as exc:
+        log.error("sync_month: download failed for %s: %s", zip_url, exc)
+        _log_event(f"Download failed for {zip_name}: {exc}")
+        raise
 
-    ZIPS_DIR.mkdir(parents=True, exist_ok=True)
+    size_mb = zip_path.stat().st_size // (1024 * 1024)
+    _log_event(f"Downloaded {zip_name} ({size_mb} MB) — scanning PDFs…")
 
-    # Pre-load the set of known CRD numbers to skip orphaned brochures
+    # Pre-load known CRDs to skip orphaned brochures
     known_crds: set[int] = set(
         db_session.scalars(select(Firm.crd_number)).all()
+    )
+
+    # Pre-load already-stored version IDs for fast dedup
+    stored_vids: set[int] = set(
+        db_session.scalars(select(AdvBrochure.brochure_version_id)).all()
     )
 
     total_processed = 0
     total_stored    = 0
     new_brochure_crds: set[int] = set()
 
-    for zip_url in zip_urls:
-        zip_name = zip_url.split("/")[-1]
-        _log_event(f"Downloading {zip_name}…")
-        try:
-            zip_path = download_file(zip_url, ZIPS_DIR)
-        except RuntimeError as exc:
-            log.error("sync_month: download failed for %s: %s", zip_url, exc)
-            _log_event(f"Download failed for {zip_name}: {exc}")
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        all_entries = zf.namelist()
+
+    pdf_entries = [n for n in all_entries if n.lower().endswith(".pdf")]
+    _log_event(f"Found {len(pdf_entries):,} PDFs in {zip_name}")
+
+    for entry_name in pdf_entries:
+        parsed = parse_pdf_filename(entry_name)
+        if parsed is None:
+            log.debug("sync_month: skipping unrecognised entry %s", entry_name)
             continue
 
-        _log_event(f"Downloaded {zip_name} ({zip_path.stat().st_size // (1024*1024)} MB) — loading mapping CSV…")
+        crd, version_id, date_tag = parsed
+        total_processed += 1
+
+        if crd not in known_crds:
+            log.debug("sync_month: CRD %d not in firms table, skipping version %d", crd, version_id)
+            continue
+
+        if version_id in stored_vids:
+            continue
+
         try:
-            mapping_rows = load_mapping_csv(zip_path)
+            uri, size_bytes = extract_and_store_pdf(
+                zip_path, entry_name, version_id, crd, date_tag, backend
+            )
         except Exception as exc:
-            log.error("sync_month: mapping CSV error in %s: %s", zip_path.name, exc)
-            _log_event(f"Mapping CSV error in {zip_name}: {exc}")
+            log.warning(
+                "sync_month: could not extract version_id=%d crd=%d: %s",
+                version_id, crd, exc,
+            )
             continue
 
-        _log_event(f"Loaded {len(mapping_rows):,} rows from {zip_name} — processing PDFs…")
+        # Parse date_tag YYYYMMDD → date
+        submit_date_obj = None
+        try:
+            submit_date_obj = datetime.strptime(date_tag, "%Y%m%d").date()
+        except ValueError:
+            pass
 
-        for row in mapping_rows:
-            crd        = row["crd"]
-            version_id = row["version_id"]
+        brochure = AdvBrochure(
+            crd_number=crd,
+            brochure_version_id=version_id,
+            brochure_name=None,
+            date_submitted=submit_date_obj,
+            source_month=source_month,
+            file_path=uri,
+            file_size_bytes=size_bytes,
+            downloaded_at=datetime.now(timezone.utc),
+        )
+        db_session.add(brochure)
 
-            total_processed += 1
+        try:
+            db_session.commit()
+        except Exception as exc:
+            db_session.rollback()
+            log.warning("sync_month: DB insert failed version_id=%d: %s", version_id, exc)
+            continue
 
-            if crd not in known_crds:
-                log.debug("sync_month: CRD %d not in firms table, skipping version %d", crd, version_id)
-                continue
+        stored_vids.add(version_id)
+        total_stored += 1
+        new_brochure_crds.add(crd)
+        log.info(
+            "sync_month: stored version_id=%d crd=%d uri=%s size=%d bytes",
+            version_id, crd, uri, size_bytes,
+        )
 
-            if brochure_already_stored(version_id, db_session):
-                continue
-
-            try:
-                uri, size_bytes = extract_and_store_pdf(
-                    zip_path, version_id, crd, row["submit_date"], backend
-                )
-            except (FileNotFoundError, Exception) as exc:
-                log.warning(
-                    "sync_month: could not extract version_id=%d crd=%d: %s",
-                    version_id, crd, exc,
-                )
-                continue
-
-            # Parse submit_date → date object
-            submit_date_obj = None
-            if row["submit_date"]:
-                for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%Y%m%d"):
-                    try:
-                        submit_date_obj = datetime.strptime(row["submit_date"], fmt).date()
-                        break
-                    except ValueError:
-                        continue
-
-            brochure = AdvBrochure(
-                crd_number=crd,
-                brochure_version_id=version_id,
-                brochure_name=row["brochure_name"],
-                date_submitted=submit_date_obj,
-                source_month=month_str,
-                file_path=uri,
-                file_size_bytes=size_bytes,
-                downloaded_at=datetime.now(timezone.utc),
-            )
-            db_session.add(brochure)
-
-            try:
-                db_session.commit()
-            except Exception as exc:
-                db_session.rollback()
-                log.warning("sync_month: DB insert failed version_id=%d: %s", version_id, exc)
-                continue
-
-            total_stored += 1
-            new_brochure_crds.add(crd)
-            log.info(
-                "sync_month: stored version_id=%d crd=%d uri=%s size=%d bytes",
-                version_id, crd, uri, size_bytes,
-            )
-
-            # Periodic progress flush
-            if total_processed % 500 == 0:
-                _commit_progress(total_processed, total_stored)
-                _log_event(f"Progress: {total_processed:,} processed, {total_stored:,} stored")
+        if total_processed % 500 == 0:
+            _commit_progress(total_processed, total_stored)
+            _log_event(f"Progress: {total_processed:,} scanned, {total_stored:,} stored")
 
     _commit_progress(total_processed, total_stored)
     _log_event(
-        f"Sync complete: {total_processed:,} processed, {total_stored:,} stored, "
-        f"{len(new_brochure_crds):,} new firms"
+        f"{zip_name} complete: {total_processed:,} scanned, {total_stored:,} stored, "
+        f"{len(new_brochure_crds):,} firms updated"
     )
     log.info(
         "sync_month %s complete: processed=%d stored=%d new_crds=%d",
-        month_str, total_processed, total_stored, len(new_brochure_crds),
+        zip_url, total_processed, total_stored, len(new_brochure_crds),
     )
     return new_brochure_crds
+
+
+# ---------------------------------------------------------------------------
+# 5. Entry point via manifest
+# ---------------------------------------------------------------------------
+
+def sync_brochure_file(manifest_entry, db_session: Session, sync_job_id: int) -> set[int]:
+    """
+    Sync a single brochure ZIP identified by a SyncManifestEntry.
+    Constructs the download URL and delegates to sync_month().
+    """
+    from services.metadata_service import get_file_url
+
+    zip_url = get_file_url(
+        manifest_entry.file_type,
+        manifest_entry.year,
+        manifest_entry.file_name,
+    )
+
+    # Derive source_month from the manifest display_name or file_name
+    # file_name e.g. "ADV_Brochures_2026_March_1_of_2.zip" → "2026-03"
+    source_month = _derive_source_month(manifest_entry.file_name, manifest_entry.year)
+
+    return sync_month(zip_url, source_month, db_session, sync_job_id)
+
+
+_MONTH_TO_NUM = {
+    "january": "01", "february": "02", "march": "03", "april": "04",
+    "may": "05", "june": "06", "july": "07", "august": "08",
+    "september": "09", "october": "10", "november": "11", "december": "12",
+}
+
+
+def _derive_source_month(file_name: str, year: int) -> str:
+    """
+    Derive 'YYYY-MM' from a brochure zip filename.
+    e.g. 'ADV_Brochures_2026_March_1_of_2.zip' → '2026-03'
+         'ADV_Brochures_2025_January.zip' → '2025-01'
+    """
+    lower = file_name.lower()
+    for month_name, month_num in _MONTH_TO_NUM.items():
+        if month_name in lower:
+            return f"{year}-{month_num}"
+    return f"{year}-01"
