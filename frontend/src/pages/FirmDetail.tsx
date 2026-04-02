@@ -549,7 +549,7 @@ function PlatformTagsTab({
               >
                 {tag.platform_name}
                 <button
-                  onClick={() => onRemove(tag.id)}
+                  onClick={() => onRemove(tag.platform_id)}
                   className="hover:text-red-600 transition-colors"
                 >
                   <X className="w-3 h-3" />
