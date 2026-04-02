@@ -46,7 +46,7 @@ api/
   routes/              # FastAPI routers
   schemas/             # Pydantic request/response models
   services/            # Pure business logic (no FastAPI imports)
-  celery_tasks/        # Celery tasks + Beat scheduler (app.py, db_scheduler.py, monthly_sync.py, refresh_tasks.py, export_tasks.py, match_tasks.py)
+  celery_tasks/        # Celery tasks + Beat scheduler (app.py, db_scheduler.py, monthly_sync.py [monthly_data_sync task], refresh_tasks.py, export_tasks.py, match_tasks.py)
 scripts/               # One-off admin/data scripts
 alembic/               # Database migrations
 tests/                 # pytest test suite
@@ -76,8 +76,11 @@ data/                  # Runtime files (git-ignored): CSVs, PDFs, exports
 - `celery_tasks/db_scheduler.py` (`DatabaseScheduler`) reads from DB on startup and re-syncs every 60 seconds, so schedule edits via the UI take effect without restarting Beat
 - Manage schedules via the UI (Sync → Schedules tab) or API (`GET/PATCH /api/schedules`, `POST /api/schedules/{id}/trigger`)
 - Seed default schedules: `make seed-schedules` (also runs as part of `make seed`)
+- The active monthly sync task is `monthly_sync.monthly_data_sync` — it runs three phases:
+  advFilingData CSVs → advW withdrawals → advBrochures PDFs, all driven by `sync_manifest`
 - All long-running operations (bulk match >100 rows, exports >500 firms) run as Celery tasks
 - Task results and status are stored in the `sync_jobs` or `export_jobs` DB tables, not in Celery result backend
+- `sync_manifest` tracks every file from `reports_metadata.json` — check it before re-running syncs
 
 ### External API
 - Routes under `/api/external/` require `Authorization: Bearer <key>` header
@@ -160,11 +163,14 @@ names from external input before comparison.
   The `aum_total` on a firm record may reflect data from a year ago — this is expected.
 - **One CRD, many CSV rows.** `IA_MAIN.csv` has one row per ADV amendment per firm.
   Always use `FILING_DATE DESC` to identify the current record for a given CRD.
-- **March PDF ZIPs are huge.** The annual amendment season produces 8–10 ZIP parts.
-  The URL discovery logic must handle part-numbered URLs:
-  `adv-brochures-2025-03.zip`, `adv-brochures-2025-03-part1.zip` ... `part10.zip`
-- **Mapping CSV is authoritative.** Never infer CRD number from PDF filename.
-  Always use the mapping CSV bundled in each brochure ZIP.
+- **March PDF ZIPs are huge.** The annual amendment season produces 2 ZIP parts totalling ~7 GB.
+  e.g. `ADV_Brochures_2026_March_1_of_2.zip`, `ADV_Brochures_2026_March_2_of_2.zip`.
+- **New brochure ZIPs contain PDFs only — no mapping CSV.** CRD and version ID are encoded
+  directly in each PDF filename: `{CRD}_{BROCHURE_VERSION_ID}_{seq}_{YYYYMMDD}.pdf`.
+  `parse_pdf_filename()` in `pdf_sync_service.py` extracts these fields.
+- **The sync_manifest table is the single source of truth for what has been processed.**
+  Every file from `reports_metadata.json` gets a row in `sync_manifest`. Status transitions:
+  `pending → processing → complete | failed`. Never re-process a `complete` entry.
 
 ---
 
@@ -219,8 +225,10 @@ Every data-fetching page must show a non-broken empty state before SEC data is l
 | IAPD firm search | `https://efts.sec.gov/LATEST/search-index?query=Info.FirmCrdNb:{crd}&forms=ADV` |
 | IAPD name search | `https://efts.sec.gov/LATEST/search-index?query=Info.BusNm:"{name}"&forms=ADV` |
 | IAPD brochure download | `https://files.adviserinfo.sec.gov/IAPD/Content/Common/crd_iapd_Brochure.aspx?BRCHR_VRSN_ID={id}` |
-| SEC FOIA bulk data page | `https://www.sec.gov/dera/data/investment-adviser-data` |
+| SEC reports metadata feed | `https://reports.adviserinfo.sec.gov/reports/foia/reports_metadata.json` |
+| Bulk CSV legacy (2000–2011) | `https://www.sec.gov/files/adv-filing-data-20001019-20111104.zip` |
 | Bulk CSV part 1 (2011–2024) | `https://www.sec.gov/files/adv-filing-data-20111105-20241231-part1.zip` |
 | Bulk CSV part 2 (2011–2024) | `https://www.sec.gov/files/adv-filing-data-20111105-20241231-part2.zip` |
-| Bulk CSV legacy (2000–2011) | `https://www.sec.gov/files/adv-filing-data-20001019-20111104.zip` |
-| Monthly brochure ZIPs | `https://www.sec.gov/files/adv-brochures-{YYYY}-{MM}.zip` |
+| Monthly filing data (2025+) | `https://reports.adviserinfo.sec.gov/reports/foia/advFilingData/{YYYY}/{fileName}` |
+| Monthly brochure ZIPs (2025+) | `https://reports.adviserinfo.sec.gov/reports/foia/advBrochures/{YYYY}/{fileName}` |
+| Monthly ADV-W (2025+) | `https://reports.adviserinfo.sec.gov/reports/foia/advW/{YYYY}/{fileName}` |
