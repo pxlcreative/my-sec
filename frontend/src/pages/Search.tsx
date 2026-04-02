@@ -9,7 +9,7 @@ import {
   createColumnHelper,
   type SortingState,
 } from '@tanstack/react-table'
-import { Share2, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, Database } from 'lucide-react'
+import { Share2, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, Database, SlidersHorizontal, X } from 'lucide-react'
 import { searchFirms, getPlatforms } from '../api/client'
 import { SkeletonTable } from '../components/Skeleton'
 import { StatusBadge } from '../components/StatusBadge'
@@ -36,6 +36,9 @@ export default function Search() {
   const regStatus = searchParams.get('registration_status') ?? ''
   const platformIds = searchParams.getAll('platform_ids')
   const page = parseInt(searchParams.get('page') ?? '1', 10)
+
+  const activeFilterCount = [state, aumMin, aumMax, regStatus].filter(Boolean).length + (platformIds.length > 0 ? 1 : 0)
+  const [filtersOpen, setFiltersOpen] = useState(activeFilterCount > 0)
 
   // Debounce
   useEffect(() => {
@@ -120,6 +123,19 @@ export default function Search() {
     [setSearchParams]
   )
 
+  function clearFilters() {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete('state')
+      next.delete('aum_min')
+      next.delete('aum_max')
+      next.delete('registration_status')
+      next.delete('platform_ids')
+      next.set('page', '1')
+      return next
+    })
+  }
+
   const columns = [
     columnHelper.accessor('legal_name', {
       header: 'Legal Name',
@@ -193,20 +209,55 @@ export default function Search() {
     addToast('Search URL copied to clipboard', 'success')
   }
 
-  return (
-    <div className="flex gap-6">
-      {/* Filter sidebar */}
-      <aside className="w-56 flex-shrink-0 space-y-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">Filters</h3>
+  const inputCls = 'text-sm border border-gray-300 rounded-md px-2.5 py-1.5 focus:ring-2 focus:ring-brand-600 focus:border-brand-600 outline-none bg-white'
 
+  return (
+    <div className="space-y-3">
+      {/* Search bar row */}
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          placeholder="Search firms by name or CRD..."
+          className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-brand-600 focus:border-brand-600 outline-none"
+        />
+        <button
+          onClick={() => setFiltersOpen((o) => !o)}
+          className={`flex items-center gap-1.5 px-3 py-2 text-sm border rounded-lg transition-colors ${
+            activeFilterCount > 0
+              ? 'border-brand-400 bg-brand-50 text-brand-700 hover:bg-brand-100'
+              : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          <SlidersHorizontal className="w-4 h-4" />
+          Filters
+          {activeFilterCount > 0 && (
+            <span className="ml-0.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-brand-600 text-white text-xs font-bold leading-none">
+              {activeFilterCount}
+            </span>
+          )}
+          {filtersOpen ? <ChevronUp className="w-3 h-3 ml-0.5" /> : <ChevronDown className="w-3 h-3 ml-0.5" />}
+        </button>
+        <button
+          onClick={handleShare}
+          className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600"
+        >
+          <Share2 className="w-4 h-4" />
+          Share
+        </button>
+      </div>
+
+      {/* Collapsible filter bar */}
+      {filtersOpen && (
+        <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 flex flex-wrap items-end gap-3">
           {/* State */}
-          <div className="mb-4">
-            <label className="block text-xs font-medium text-gray-600 mb-1">State</label>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-gray-500">State</label>
             <select
               value={state}
               onChange={(e) => setParam('state', e.target.value)}
-              className="w-full text-sm border border-gray-300 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-brand-600 focus:border-brand-600 outline-none"
+              className={`${inputCls} w-36`}
             >
               <option value="">All States</option>
               {US_STATES.map((s) => (
@@ -215,37 +266,35 @@ export default function Search() {
             </select>
           </div>
 
-          {/* AUM Min */}
-          <div className="mb-4">
-            <label className="block text-xs font-medium text-gray-600 mb-1">AUM Min ($)</label>
+          {/* AUM range */}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-gray-500">AUM Min ($)</label>
             <input
               type="number"
               value={aumMin}
               onChange={(e) => setParam('aum_min', e.target.value)}
               placeholder="e.g. 100000000"
-              className="w-full text-sm border border-gray-300 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-brand-600 outline-none"
+              className={`${inputCls} w-36`}
             />
           </div>
-
-          {/* AUM Max */}
-          <div className="mb-4">
-            <label className="block text-xs font-medium text-gray-600 mb-1">AUM Max ($)</label>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-gray-500">AUM Max ($)</label>
             <input
               type="number"
               value={aumMax}
               onChange={(e) => setParam('aum_max', e.target.value)}
               placeholder="e.g. 1000000000"
-              className="w-full text-sm border border-gray-300 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-brand-600 outline-none"
+              className={`${inputCls} w-36`}
             />
           </div>
 
-          {/* Registration Status */}
-          <div className="mb-4">
-            <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
+          {/* Status */}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-gray-500">Status</label>
             <select
               value={regStatus}
               onChange={(e) => setParam('registration_status', e.target.value)}
-              className="w-full text-sm border border-gray-300 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-brand-600 outline-none"
+              className={`${inputCls} w-36`}
             >
               <option value="">All Statuses</option>
               <option value="Registered">Registered</option>
@@ -256,21 +305,21 @@ export default function Search() {
 
           {/* Platform multi-select */}
           {platforms && platforms.length > 0 && (
-            <div className="mb-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Platforms</label>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-gray-500">Platform</label>
               <div className="relative" ref={platformDropdownRef}>
                 <button
                   type="button"
                   onClick={() => setPlatformDropdownOpen((o) => !o)}
-                  className="w-full text-sm border border-gray-300 rounded-md px-2 py-1.5 text-left bg-white focus:ring-2 focus:ring-brand-600 outline-none flex justify-between items-center"
+                  className={`${inputCls} w-40 flex justify-between items-center`}
                 >
                   <span className="text-gray-600">
                     {platformIds.length > 0 ? `${platformIds.length} selected` : 'Any platform'}
                   </span>
-                  <ChevronDown className="w-3 h-3 text-gray-400" />
+                  <ChevronDown className="w-3 h-3 text-gray-400 ml-2 flex-shrink-0" />
                 </button>
                 {platformDropdownOpen && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg z-10 max-h-48 overflow-y-auto">
+                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg z-10 min-w-full max-h-48 overflow-y-auto">
                     {platforms.map((p) => (
                       <label
                         key={p.id}
@@ -290,162 +339,152 @@ export default function Search() {
               </div>
             </div>
           )}
-        </div>
-      </aside>
 
-      {/* Main content */}
-      <div className="flex-1 min-w-0">
-        {/* Search bar */}
-        <div className="flex items-center gap-3 mb-4">
-          <input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Search firms by name or CRD..."
-            className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-brand-600 focus:border-brand-600 outline-none"
-          />
-          <button
-            onClick={handleShare}
-            className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600"
-          >
-            <Share2 className="w-4 h-4" />
-            Share
-          </button>
-        </div>
-
-        {/* Results count */}
-        {data && (
-          <p className="text-sm text-gray-500 mb-3">
-            {data.total.toLocaleString()} firm{data.total !== 1 ? 's' : ''} found
-          </p>
-        )}
-
-        {/* Table */}
-        {isLoading ? (
-          <SkeletonTable rows={8} cols={7} />
-        ) : error ? (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
-            Failed to load firms. Please try again.
-          </div>
-        ) : data && data.total === 0 && !debouncedQ && !state && !aumMin && !aumMax && !regStatus && platformIds.length === 0 ? (
-          /* No data loaded yet — distinct from "no results for a query" */
-          <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
-            <Database className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-            <h2 className="text-lg font-semibold text-gray-700 mb-2">No firms loaded yet</h2>
-            <p className="text-sm text-gray-500 max-w-sm mx-auto mb-4">
-              Load SEC data to get started. Run{' '}
-              <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono">make load-data</code>{' '}
-              from the project root, or see the README for step-by-step instructions.
-            </p>
-            <a
-              href="https://github.com/anthropics/claude-code"
-              className="inline-flex items-center gap-1 text-sm text-brand-600 hover:text-brand-700 font-medium"
-              onClick={(e) => { e.preventDefault(); window.open('/README.md', '_blank') }}
+          {/* Clear button — only shown when filters are active */}
+          {activeFilterCount > 0 && (
+            <button
+              onClick={clearFilters}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-md hover:bg-gray-50 self-end mb-px"
             >
-              View Setup Guide →
-            </a>
-          </div>
-        ) : (
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  {table.getHeaderGroups().map((headerGroup) => (
-                    <tr key={headerGroup.id}>
-                      {headerGroup.headers.map((header) => (
-                        <th
-                          key={header.id}
-                          onClick={header.column.getToggleSortingHandler()}
-                          className={`px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide ${
-                            header.column.getCanSort()
-                              ? 'cursor-pointer hover:text-gray-900 select-none'
-                              : ''
-                          }`}
-                        >
-                          <div className="flex items-center gap-1">
-                            {flexRender(
-                              header.column.columnDef.header,
-                              header.getContext()
-                            )}
-                            {header.column.getCanSort() && (
-                              <span className="text-gray-400">
-                                {header.column.getIsSorted() === 'asc' ? (
-                                  <ChevronUp className="w-3 h-3" />
-                                ) : header.column.getIsSorted() === 'desc' ? (
-                                  <ChevronDown className="w-3 h-3" />
-                                ) : (
-                                  <ChevronsUpDown className="w-3 h-3" />
-                                )}
-                              </span>
-                            )}
-                          </div>
-                        </th>
+              <X className="w-3 h-3" />
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Results count */}
+      {data && (
+        <p className="text-sm text-gray-500">
+          {data.total.toLocaleString()} firm{data.total !== 1 ? 's' : ''} found
+        </p>
+      )}
+
+      {/* Table */}
+      {isLoading ? (
+        <SkeletonTable rows={8} cols={7} />
+      ) : error ? (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
+          Failed to load firms. Please try again.
+        </div>
+      ) : data && data.total === 0 && !debouncedQ && !state && !aumMin && !aumMax && !regStatus && platformIds.length === 0 ? (
+        /* No data loaded yet — distinct from "no results for a query" */
+        <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
+          <Database className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+          <h2 className="text-lg font-semibold text-gray-700 mb-2">No firms loaded yet</h2>
+          <p className="text-sm text-gray-500 max-w-sm mx-auto mb-4">
+            Load SEC data to get started. Run{' '}
+            <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono">make load-data</code>{' '}
+            from the project root, or see the README for step-by-step instructions.
+          </p>
+          <a
+            href="https://github.com/anthropics/claude-code"
+            className="inline-flex items-center gap-1 text-sm text-brand-600 hover:text-brand-700 font-medium"
+            onClick={(e) => { e.preventDefault(); window.open('/README.md', '_blank') }}
+          >
+            View Setup Guide →
+          </a>
+        </div>
+      ) : (
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <tr key={headerGroup.id}>
+                    {headerGroup.headers.map((header) => (
+                      <th
+                        key={header.id}
+                        onClick={header.column.getToggleSortingHandler()}
+                        className={`px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide ${
+                          header.column.getCanSort()
+                            ? 'cursor-pointer hover:text-gray-900 select-none'
+                            : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-1">
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                          {header.column.getCanSort() && (
+                            <span className="text-gray-400">
+                              {header.column.getIsSorted() === 'asc' ? (
+                                <ChevronUp className="w-3 h-3" />
+                              ) : header.column.getIsSorted() === 'desc' ? (
+                                <ChevronDown className="w-3 h-3" />
+                              ) : (
+                                <ChevronsUpDown className="w-3 h-3" />
+                              )}
+                            </span>
+                          )}
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                ))}
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {table.getRowModel().rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={columns.length} className="px-4 py-10 text-center">
+                      <p className="text-gray-500 mb-2">No firms match your search</p>
+                      <button
+                        onClick={() => {
+                          setInputValue('')
+                          setSearchParams(new URLSearchParams())
+                        }}
+                        className="text-sm text-brand-600 hover:text-brand-700 font-medium"
+                      >
+                        Clear filters
+                      </button>
+                    </td>
+                  </tr>
+                ) : (
+                  table.getRowModel().rows.map((row) => (
+                    <tr
+                      key={row.id}
+                      onClick={() => navigate(`/firms/${row.original.crd_number}`)}
+                      className="cursor-pointer hover:bg-brand-50 transition-colors"
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <td key={cell.id} className="px-4 py-3">
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
                       ))}
                     </tr>
-                  ))}
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {table.getRowModel().rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={columns.length} className="px-4 py-10 text-center">
-                        <p className="text-gray-500 mb-2">No firms match your search</p>
-                        <button
-                          onClick={() => {
-                            setInputValue('')
-                            setSearchParams(new URLSearchParams())
-                          }}
-                          className="text-sm text-brand-600 hover:text-brand-700 font-medium"
-                        >
-                          Clear filters
-                        </button>
-                      </td>
-                    </tr>
-                  ) : (
-                    table.getRowModel().rows.map((row) => (
-                      <tr
-                        key={row.id}
-                        onClick={() => navigate(`/firms/${row.original.crd_number}`)}
-                        className="cursor-pointer hover:bg-brand-50 transition-colors"
-                      >
-                        {row.getVisibleCells().map((cell) => (
-                          <td key={cell.id} className="px-4 py-3">
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </td>
-                        ))}
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination — only shown when there are multiple pages */}
-            {data && data.total > 0 && data.total > data.page_size && (
-              <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
-                <p className="text-sm text-gray-500">
-                  Page {page} of {totalPages} ({data.total.toLocaleString()} total)
-                </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    disabled={page <= 1}
-                    onClick={() => setParam('page', String(page - 1))}
-                    className="p-1.5 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    disabled={page >= totalPages}
-                    onClick={() => setParam('page', String(page + 1))}
-                    className="p-1.5 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            )}
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
-        )}
-      </div>
+
+          {/* Pagination — only shown when there are multiple pages */}
+          {data && data.total > 0 && data.total > data.page_size && (
+            <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
+              <p className="text-sm text-gray-500">
+                Page {page} of {totalPages} ({data.total.toLocaleString()} total)
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={page <= 1}
+                  onClick={() => setParam('page', String(page - 1))}
+                  className="p-1.5 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  disabled={page >= totalPages}
+                  onClick={() => setParam('page', String(page + 1))}
+                  className="p-1.5 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
