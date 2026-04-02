@@ -95,9 +95,6 @@ export default function Platforms() {
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <h3 className="font-bold text-gray-900 leading-tight">{platform.name}</h3>
                   <div className="flex items-center gap-1 flex-shrink-0">
-                    <span className="text-xs bg-brand-100 text-brand-800 font-medium px-2 py-0.5 rounded-full whitespace-nowrap">
-                      #{platform.id}
-                    </span>
                     {confirmDeleteId === platform.id ? (
                       <>
                         <button
