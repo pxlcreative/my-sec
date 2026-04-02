@@ -84,7 +84,7 @@ export async function deletePlatform(id: number): Promise<void> {
 
 export async function getPlatformFirms(id: number): Promise<FirmSummary[]> {
   const response = await api.get(`/platforms/${id}/firms`)
-  return response.data
+  return response.data.results
 }
 
 export async function getFirmPlatforms(crd: number): Promise<FirmPlatformTag[]> {
