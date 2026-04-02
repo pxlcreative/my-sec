@@ -4,7 +4,8 @@ Celery task for the monthly data sync (Module B1).
 Driven by reports_metadata.json — no hardcoded URLs or month probing.
 
 Phase 1 (fast):  advFilingData + advW  — CSV-based firm updates
-Phase 2 (slow):  advBrochures          — PDF download and storage
+Phase 2:         advBrochures ZIPs are skipped — PDFs are fetched per-firm
+                 by brochure_tasks.sync_all_platforms_brochures() after Phase 1.
 """
 from __future__ import annotations
 
@@ -76,8 +77,6 @@ def monthly_data_sync(self, job_id: int | None = None) -> dict:
             )
 
             total_filing_firms = 0
-            total_brochures_stored = 0
-            new_brochure_crds: set[int] = set()
 
             # ----------------------------------------------------------------
             # Phase 1a: advFilingData — update firms / AUM from monthly CSVs
@@ -102,13 +101,18 @@ def monthly_data_sync(self, job_id: int | None = None) -> dict:
                 _log_event("Phase 1b: no pending advW files")
 
             # ----------------------------------------------------------------
-            # Phase 2: advBrochures — download PDFs
+            # Phase 2: advBrochures — mark pending ZIPs as skipped.
+            # PDFs are fetched per-firm via brochure_tasks based on platform tags.
             # ----------------------------------------------------------------
             brochure_pending = get_pending_files(session, "advBrochures")
             if brochure_pending:
-                _log_event(f"Phase 2: processing {len(brochure_pending)} pending advBrochures file(s)…")
-                total_brochures_stored, new_brochure_crds = _process_brochures(
-                    brochure_pending, session, job_id, _log_event
+                for _entry in brochure_pending:
+                    _entry.status = "skipped"
+                    _entry.processed_at = datetime.now(timezone.utc)
+                session.commit()
+                _log_event(
+                    f"Phase 2: skipped {len(brochure_pending)} advBrochures ZIP(s) "
+                    "— PDFs fetched per-firm via platform brochure sync"
                 )
             else:
                 _log_event("Phase 2: no pending advBrochures files")
@@ -119,25 +123,20 @@ def monthly_data_sync(self, job_id: int | None = None) -> dict:
             job = session.get(SyncJob, job_id)
             job.status = "complete"
             job.completed_at = datetime.now(timezone.utc)
-            job.firms_updated = total_filing_firms + total_brochures_stored
+            job.firms_updated = total_filing_firms
             session.commit()
 
             result = {
                 "status": "complete",
                 "filing_firms_updated": total_filing_firms,
-                "brochures_stored": total_brochures_stored,
-                "refreshes_enqueued": len(new_brochure_crds),
             }
-            _log_event(
-                f"Sync complete: {total_filing_firms} firm records updated, "
-                f"{total_brochures_stored} brochures stored, "
-                f"{len(new_brochure_crds)} firms enqueued for IAPD refresh"
-            )
+            _log_event(f"Sync complete: {total_filing_firms} firm records updated")
             log.info("monthly_data_sync complete: %s", result)
 
-            if new_brochure_crds:
-                from celery_tasks.refresh_tasks import refresh_firms_with_new_brochures
-                refresh_firms_with_new_brochures.delay(list(new_brochure_crds))
+            # Auto-trigger per-firm PDF fetch for all platforms with save_brochures=True
+            from celery_tasks.brochure_tasks import sync_all_platforms_brochures
+            sync_all_platforms_brochures.delay()
+            _log_event("Enqueued per-firm brochure sync for all save_brochures platforms")
 
             return result
 
@@ -310,29 +309,6 @@ def _apply_withdrawals(withdrawals: list[dict], conn) -> None:
     with conn.cursor() as cur:
         psycopg2.extras.execute_batch(cur, sql, withdrawals, page_size=500)
     conn.commit()
-
-
-def _process_brochures(pending, session, job_id: int, _log_event) -> tuple[int, set[int]]:
-    """Download and ingest each pending advBrochures ZIP. Returns (total_stored, new_crd_set)."""
-    from services.pdf_sync_service import sync_brochure_file
-
-    total_stored = 0
-    all_new_crds: set[int] = set()
-
-    for entry in pending:
-        _mark_processing(entry, job_id, session)
-        _log_event(f"Processing brochures ZIP: {entry.file_name}…")
-        try:
-            new_crds = sync_brochure_file(entry, session, job_id)
-            total_stored += len(new_crds)  # approximate: crds ≤ PDFs stored
-            all_new_crds.update(new_crds)
-            _mark_complete(entry, len(new_crds), session)
-        except Exception as exc:
-            log.error("_process_brochures: failed %s: %s", entry.file_name, exc)
-            _log_event(f"Failed {entry.file_name}: {exc}")
-            _mark_failed(entry, str(exc), session)
-
-    return total_stored, all_new_crds
 
 
 # ---------------------------------------------------------------------------

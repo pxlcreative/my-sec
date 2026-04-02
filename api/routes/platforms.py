@@ -49,7 +49,7 @@ def create_platform(
     body: PlatformCreate, db: Session = Depends(get_db)
 ) -> PlatformOut:
     try:
-        p = platform_service.create_platform(body.name, body.description, db)
+        p = platform_service.create_platform(body.name, body.description, body.save_brochures, db)
         return PlatformOut.model_validate(p)
     except HTTPException:
         raise
@@ -109,6 +109,35 @@ def get_firms_for_platform(
         raise
     except Exception:
         log.error("get_firms_for_platform error\n%s", traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ---------------------------------------------------------------------------
+# POST /api/platforms/{id}/sync-brochures
+# ---------------------------------------------------------------------------
+
+@platforms_router.post(
+    "/{platform_id}/sync-brochures",
+    status_code=202,
+    summary="Enqueue Part 2 brochure fetch for all firms on this platform",
+)
+def trigger_platform_brochure_sync(
+    platform_id: int, db: Session = Depends(get_db)
+) -> dict:
+    try:
+        platform = platform_service._require_platform(platform_id, db)
+        if not platform.save_brochures:
+            raise HTTPException(
+                status_code=400,
+                detail="Platform does not have save_brochures enabled",
+            )
+        from celery_tasks.brochure_tasks import sync_platform_brochures
+        sync_platform_brochures.delay(platform_id)
+        return {"status": "enqueued", "platform_id": platform_id}
+    except HTTPException:
+        raise
+    except Exception:
+        log.error("trigger_platform_brochure_sync(%s) error\n%s", platform_id, traceback.format_exc())
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

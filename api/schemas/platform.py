@@ -9,12 +9,14 @@ class PlatformOut(BaseModel):
     id: int
     name: str
     description: str | None
+    save_brochures: bool
     created_at: datetime.datetime | None
 
 
 class PlatformCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: str | None = None
+    save_brochures: bool = False
 
 
 class SetFirmPlatformsRequest(BaseModel):

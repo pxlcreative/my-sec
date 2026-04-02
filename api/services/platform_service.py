@@ -75,7 +75,7 @@ def delete_platform(platform_id: int, session: Session) -> None:
 
 
 def create_platform(
-    name: str, description: str | None, session: Session
+    name: str, description: str | None, save_brochures: bool, session: Session
 ) -> PlatformDefinition:
     existing = session.scalars(
         select(PlatformDefinition).where(PlatformDefinition.name == name)
@@ -85,7 +85,7 @@ def create_platform(
         raise HTTPException(
             status_code=409, detail=f"Platform '{name}' already exists"
         )
-    p = PlatformDefinition(name=name, description=description)
+    p = PlatformDefinition(name=name, description=description, save_brochures=save_brochures)
     session.add(p)
     session.commit()
     session.refresh(p)
