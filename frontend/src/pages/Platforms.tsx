@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Tag, Eye, Loader2, Trash2, X, Check } from 'lucide-react'
+import { Plus, Tag, Eye, Loader2, Trash2, X, Check, FileText } from 'lucide-react'
 import { getPlatforms, createPlatform, deletePlatform } from '../api/client'
 import { Skeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
@@ -14,6 +14,7 @@ export default function Platforms() {
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [saveBrochures, setSaveBrochures] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
 
   const { data: platforms, isLoading, error } = useQuery({
@@ -32,12 +33,13 @@ export default function Platforms() {
   })
 
   const createMutation = useMutation({
-    mutationFn: () => createPlatform({ name: name.trim(), description: description.trim() || undefined }),
+    mutationFn: () => createPlatform({ name: name.trim(), description: description.trim() || undefined, save_brochures: saveBrochures }),
     onSuccess: (newPlatform) => {
       queryClient.invalidateQueries({ queryKey: ['platforms'] })
       addToast(`Platform "${newPlatform.name}" created`, 'success')
       setName('')
       setDescription('')
+      setSaveBrochures(false)
     },
     onError: () => addToast('Failed to create platform', 'error'),
   })
@@ -121,6 +123,14 @@ export default function Platforms() {
                 {platform.description && (
                   <p className="text-sm text-gray-500 leading-relaxed mb-3">{platform.description}</p>
                 )}
+                <div className="flex items-center gap-2 flex-wrap mb-2">
+                  {platform.save_brochures && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-green-50 text-green-700 border border-green-200 font-medium px-2 py-0.5 rounded-full">
+                      <FileText className="w-3 h-3" />
+                      Saves PDFs
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-gray-400">
                   Created {formatDate(platform.created_at)}
                 </p>
@@ -167,6 +177,17 @@ export default function Platforms() {
               className="w-full text-sm border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-brand-600 outline-none resize-none"
             />
           </div>
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <div
+              onClick={() => setSaveBrochures(!saveBrochures)}
+              className={`relative w-9 h-5 rounded-full transition-colors ${saveBrochures ? 'bg-brand-600' : 'bg-gray-300'}`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${saveBrochures ? 'translate-x-4' : 'translate-x-0'}`}
+              />
+            </div>
+            <span className="text-sm text-gray-700">Save Part 2 brochure PDFs for firms on this platform</span>
+          </label>
           <button
             onClick={() => createMutation.mutate()}
             disabled={!name.trim() || createMutation.isPending}

@@ -67,6 +67,7 @@ export async function getPlatforms(): Promise<PlatformOut[]> {
 export async function createPlatform(data: {
   name: string
   description?: string
+  save_brochures?: boolean
 }): Promise<PlatformOut> {
   const response = await api.post('/platforms', data)
   return response.data
