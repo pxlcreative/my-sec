@@ -163,11 +163,11 @@ names from external input before comparison.
   The `aum_total` on a firm record may reflect data from a year ago — this is expected.
 - **One CRD, many CSV rows.** `IA_MAIN.csv` has one row per ADV amendment per firm.
   Always use `FILING_DATE DESC` to identify the current record for a given CRD.
-- **March PDF ZIPs are huge.** The annual amendment season produces 2 ZIP parts totalling ~7 GB.
-  e.g. `ADV_Brochures_2026_March_1_of_2.zip`, `ADV_Brochures_2026_March_2_of_2.zip`.
-- **New brochure ZIPs contain PDFs only — no mapping CSV.** CRD and version ID are encoded
-  directly in each PDF filename: `{CRD}_{BROCHURE_VERSION_ID}_{seq}_{YYYYMMDD}.pdf`.
-  `parse_pdf_filename()` in `pdf_sync_service.py` extracts these fields.
+- **Brochure ZIPs are never downloaded.** PDFs are fetched per-firm using the IAPD firm
+  search API (`api.adviserinfo.sec.gov/search/firm/{crd}`) which returns
+  `brochures.brochuredetails` with `{brochureVersionID, brochureName, dateSubmitted}` (date
+  format: `M/D/YYYY`). PDFs are downloaded individually via `files.adviserinfo.sec.gov/IAPD/Content/Common/crd_iapd_Brochure.aspx?BRCHR_VRSN_ID={id}`.
+  Only firms on platforms with `save_brochures=True` receive brochure fetches.
 - **The sync_manifest table is the single source of truth for what has been processed.**
   Every file from `reports_metadata.json` gets a row in `sync_manifest`. Status transitions:
   `pending → processing → complete | failed`. Never re-process a `complete` entry.

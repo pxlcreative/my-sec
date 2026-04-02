@@ -101,21 +101,10 @@ def monthly_data_sync(self, job_id: int | None = None) -> dict:
                 _log_event("Phase 1b: no pending advW files")
 
             # ----------------------------------------------------------------
-            # Phase 2: advBrochures — mark pending ZIPs as skipped.
+            # Phase 2: advBrochures ZIPs are never downloaded.
             # PDFs are fetched per-firm via brochure_tasks based on platform tags.
             # ----------------------------------------------------------------
-            brochure_pending = get_pending_files(session, "advBrochures")
-            if brochure_pending:
-                for _entry in brochure_pending:
-                    _entry.status = "skipped"
-                    _entry.processed_at = datetime.now(timezone.utc)
-                session.commit()
-                _log_event(
-                    f"Phase 2: skipped {len(brochure_pending)} advBrochures ZIP(s) "
-                    "— PDFs fetched per-firm via platform brochure sync"
-                )
-            else:
-                _log_event("Phase 2: no pending advBrochures files")
+            _log_event("Phase 2: advBrochures ZIPs skipped — PDFs fetched per-firm via platform brochure sync")
 
             # ----------------------------------------------------------------
             # Finalize job

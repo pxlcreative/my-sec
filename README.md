@@ -320,7 +320,7 @@ mysec/
 │   │   ├── firm_refresh_service.py
 │   │   ├── matcher.py          # Fuzzy name+address matching
 │   │   ├── metadata_service.py # Fetches reports_metadata.json, manages sync_manifest
-│   │   ├── pdf_sync_service.py # Brochure PDF download (filename-based, no mapping CSV)
+│   │   ├── firm_brochure_service.py # Per-firm brochure fetch via IAPD API
 │   │   ├── alert_service.py
 │   │   ├── export_service.py
 │   │   ├── excel_generator.py  # openpyxl DDQ workbook

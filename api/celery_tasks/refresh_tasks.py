@@ -40,18 +40,3 @@ def refresh_firm_task(self, crd_number: int) -> dict:
             raise self.retry(exc=exc, countdown=30 * (self.request.retries + 1))
 
 
-@app.task(name="refresh_tasks.refresh_firms_with_new_brochures")
-def refresh_firms_with_new_brochures(crd_list: list[int]) -> dict:
-    """
-    Enqueue one refresh_firm_task per CRD in *crd_list*.
-    Called by monthly_pdf_sync after PDFs are stored.
-    """
-    if not crd_list:
-        return {"enqueued": 0}
-
-    unique_crds = list(set(crd_list))
-    for crd in unique_crds:
-        refresh_firm_task.delay(crd)
-
-    log.info("refresh_firms_with_new_brochures: enqueued %d refresh tasks", len(unique_crds))
-    return {"enqueued": len(unique_crds)}

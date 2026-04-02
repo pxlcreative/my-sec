@@ -49,7 +49,7 @@ Build a private, self-hosted database of SEC-registered investment adviser firms
 | IAPD live search | JSON (unofficial REST) | Current filings, all firms | `https://efts.sec.gov/LATEST/search-index` |
 | ADV Part 1 bulk CSV | ZIP of multiple CSVs | Nov 2011–Dec 2024 (two ZIPs) | sec.gov/foia Form ADV Data page |
 | ADV Part 1 (legacy) | ZIP of CSVs | Oct 2000–Nov 2011 | sec.gov/foia Form ADV Data page |
-| ADV Part 2 brochures | ZIP of PDFs + mapping CSV | Monthly, 2020–present | sec.gov/foia Form ADV Data page |
+| ADV Part 2 brochures | Per-firm via IAPD API | Per-firm, on demand | `https://api.adviserinfo.sec.gov/search/firm/{crd}` |
 | ADV Part 3 (CRS) | ZIP of PDFs | Monthly, 2020–present | sec.gov/foia Form ADV Data page |
 | ADV-W (withdrawals) | ZIP of CSVs | Deregistration history | sec.gov/foia Form ADV Data page |
 | IAPD brochure download | PDF per version ID | Per-firm, per-filing | `https://files.adviserinfo.sec.gov/IAPD/Content/Common/crd_iapd_Brochure.aspx?BRCHR_VRSN_ID={id}` |
@@ -66,7 +66,14 @@ GET https://efts.sec.gov/LATEST/search-index?query=Info.FirmCrdNb:{crd}&forms=AD
 GET https://efts.sec.gov/LATEST/search-index?query=Info.BusNm:"{name}"&forms=ADV&from=0&size=10
 ```
 
-**Brochure list for a CRD:**
+**Brochure listing for a CRD:**
+```
+GET https://api.adviserinfo.sec.gov/search/firm/{crd}?hl=true&nrows=12&query=test&r=25&sort=score+desc&wt=json
+→ hits[0]._source.iacontent (JSON string)
+  → brochures.brochuredetails: [{brochureVersionID, brochureName, dateSubmitted (M/D/YYYY)}, ...]
+```
+
+**Brochure PDF download:**
 ```
 GET https://files.adviserinfo.sec.gov/IAPD/Content/Common/crd_iapd_Brochure.aspx?BRCHR_VRSN_ID={id}
 ```
@@ -281,7 +288,7 @@ CREATE INDEX idx_alert_events_crd ON alert_events(crd_number, fired_at DESC);
 
 CREATE TABLE sync_jobs (
   id              BIGSERIAL PRIMARY KEY,
-  job_type        TEXT NOT NULL,              -- 'bulk_csv', 'monthly_pdf', 'live_incremental', 'aum_history'
+  job_type        TEXT NOT NULL,              -- 'bulk_csv', 'monthly_data', 'live_incremental', 'aum_history'
   status          TEXT NOT NULL DEFAULT 'pending', -- 'pending','running','complete','failed'
   source_url      TEXT,
   firms_processed INTEGER DEFAULT 0,
@@ -369,47 +376,19 @@ def load_ia_main(csv_path, conn, source_tag):
 
 ## Module B: Monthly Incremental Sync
 
-**Goal:** Each month, when new ADV Part 2 PDF ZIPs are published, automatically download them, extract PDFs, and update firm records via the live IAPD API.
+**Goal:** Each month, update firm records from new ADV filings and fetch fresh brochure PDFs for platform-tagged firms.
 
-### B1. Monthly PDF Download
+### B1. Per-Firm Brochure Fetch
 
-The SEC publishes new Part 2 brochure ZIPs each month at predictable URLs:
+Brochure ZIPs are never downloaded. Instead, `brochure_tasks.sync_all_platforms_brochures` fans out to `fetch_firm_brochures` for every firm on a platform with `save_brochures=True`.
 
-```
-https://www.sec.gov/files/adv-brochures-{YYYY}-{month}.zip
-https://www.sec.gov/files/adv-brochures-{YYYY}-{month}-part1.zip  (large months)
-```
+For each firm, `firm_brochure_service.fetch_and_store_firm_brochures(crd, db)`:
+1. Calls `https://api.adviserinfo.sec.gov/search/firm/{crd}?...` to get the brochure listing
+2. Parses `hits[0]._source.iacontent → brochures.brochuredetails` for `{brochureVersionID, brochureName, dateSubmitted}`
+3. Downloads any version IDs not already in `adv_brochures` via `files.adviserinfo.sec.gov/IAPD/Content/Common/crd_iapd_Brochure.aspx?BRCHR_VRSN_ID={id}`
+4. Stores via the active storage backend; inserts an `adv_brochures` row
 
-A companion mapping CSV lists `CRD_NUMBER`, `BRCHR_VRSN_ID`, `BROCHURE_NAME`, `SUBMIT_DATE`.
-
-**Scheduler task (runs 1st of each month):**
-
-```python
-# In celery_tasks/monthly_sync.py
-@app.task
-def monthly_pdf_sync():
-    month_str = get_previous_month_str()          # e.g. "2025-02"
-    zip_urls  = discover_month_zip_urls(month_str) # check sec.gov for part1/part2/etc.
-    
-    for url in zip_urls:
-        zip_path = download_file(url, DOWNLOAD_DIR)
-        mapping  = load_mapping_csv(zip_path)
-        
-        for row in mapping:
-            crd, version_id, name, date = row
-            if not brochure_already_stored(version_id):
-                pdf_bytes = extract_pdf_from_zip(zip_path, version_id)
-                local_path = store_pdf(crd, version_id, pdf_bytes)
-                insert_brochure_record(crd, version_id, name, date, 
-                                       month_str, local_path)
-```
-
-**PDF storage layout:**
-```
-/data/brochures/
-  {crd}/
-    {version_id}_{YYYYMMDD}.pdf
-```
+This runs automatically after `monthly_data_sync` completes, and can also be triggered manually via `POST /api/platforms/{id}/sync-brochures`.
 
 ### B2. Firm Data Refresh via IAPD API
 
