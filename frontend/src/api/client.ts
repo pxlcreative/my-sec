@@ -73,6 +73,11 @@ export async function createPlatform(data: {
   return response.data
 }
 
+export async function updatePlatform(id: number, data: { save_brochures: boolean }): Promise<PlatformOut> {
+  const response = await api.patch(`/platforms/${id}`, data)
+  return response.data
+}
+
 export async function deletePlatform(id: number): Promise<void> {
   await api.delete(`/platforms/${id}`)
 }

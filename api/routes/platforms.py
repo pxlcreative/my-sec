@@ -13,6 +13,7 @@ from schemas.platform import (
     FirmPlatformTag,
     PlatformCreate,
     PlatformOut,
+    PlatformUpdate,
     SetFirmPlatformsRequest,
 )
 from services import firm_service, platform_service
@@ -56,6 +57,24 @@ def create_platform(
         raise
     except Exception:
         log.error("create_platform error\n%s", traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/platforms/{id}
+# ---------------------------------------------------------------------------
+
+@platforms_router.patch("/{platform_id}", response_model=PlatformOut, summary="Update a platform")
+def update_platform(
+    platform_id: int, body: PlatformUpdate, db: Session = Depends(get_db)
+) -> PlatformOut:
+    try:
+        p = platform_service.update_platform(platform_id, body.save_brochures, db)
+        return PlatformOut.model_validate(p)
+    except HTTPException:
+        raise
+    except Exception:
+        log.error("update_platform(%s) error\n%s", platform_id, traceback.format_exc())
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

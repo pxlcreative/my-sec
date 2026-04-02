@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Tag, Eye, Loader2, Trash2, X, Check, FileText } from 'lucide-react'
-import { getPlatforms, createPlatform, deletePlatform } from '../api/client'
+import { getPlatforms, createPlatform, updatePlatform, deletePlatform } from '../api/client'
 import { Skeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 import { formatDate } from '../utils'
@@ -20,6 +20,13 @@ export default function Platforms() {
   const { data: platforms, isLoading, error } = useQuery({
     queryKey: ['platforms'],
     queryFn: getPlatforms,
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, save_brochures }: { id: number; save_brochures: boolean }) =>
+      updatePlatform(id, { save_brochures }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['platforms'] }),
+    onError: () => addToast('Failed to update platform', 'error'),
   })
 
   const deleteMutation = useMutation({
@@ -123,14 +130,18 @@ export default function Platforms() {
                 {platform.description && (
                   <p className="text-sm text-gray-500 leading-relaxed mb-3">{platform.description}</p>
                 )}
-                <div className="flex items-center gap-2 flex-wrap mb-2">
-                  {platform.save_brochures && (
-                    <span className="inline-flex items-center gap-1 text-xs bg-green-50 text-green-700 border border-green-200 font-medium px-2 py-0.5 rounded-full">
-                      <FileText className="w-3 h-3" />
-                      Saves PDFs
-                    </span>
-                  )}
-                </div>
+                <label className="flex items-center gap-2 cursor-pointer select-none mt-2 mb-1">
+                  <div
+                    onClick={() => updateMutation.mutate({ id: platform.id, save_brochures: !platform.save_brochures })}
+                    className={`relative w-8 h-4 rounded-full transition-colors ${platform.save_brochures ? 'bg-brand-600' : 'bg-gray-300'}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${platform.save_brochures ? 'translate-x-4' : 'translate-x-0'}`} />
+                  </div>
+                  <span className="text-xs text-gray-500 flex items-center gap-1">
+                    <FileText className="w-3 h-3" />
+                    {platform.save_brochures ? 'Saving PDFs' : 'Not saving PDFs'}
+                  </span>
+                </label>
                 <p className="text-xs text-gray-400">
                   Created {formatDate(platform.created_at)}
                 </p>

@@ -19,6 +19,10 @@ class PlatformCreate(BaseModel):
     save_brochures: bool = False
 
 
+class PlatformUpdate(BaseModel):
+    save_brochures: bool
+
+
 class AddFirmPlatformRequest(BaseModel):
     platform_id: int
 

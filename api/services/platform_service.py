@@ -66,6 +66,14 @@ def list_platforms(session: Session) -> list[PlatformDefinition]:
     ).all())
 
 
+def update_platform(platform_id: int, save_brochures: bool, session: Session) -> PlatformDefinition:
+    p = _require_platform(platform_id, session)
+    p.save_brochures = save_brochures
+    session.commit()
+    session.refresh(p)
+    return p
+
+
 def delete_platform(platform_id: int, session: Session) -> None:
     platform = _require_platform(platform_id, session)
     # Remove all firm-platform tags first to satisfy FK constraint
