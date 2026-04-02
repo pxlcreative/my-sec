@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from db import get_db
 from schemas.firm import FirmSummary, PaginatedFirms
 from schemas.platform import (
+    AddFirmPlatformRequest,
     BulkTagRequest,
     BulkTagResponse,
     FirmPlatformTag,
@@ -154,6 +155,29 @@ def get_firm_platforms(crd: int, db: Session = Depends(get_db)) -> list[FirmPlat
         raise
     except Exception:
         log.error("get_firm_platforms(%s) error\n%s", crd, traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ---------------------------------------------------------------------------
+# POST /api/firms/{crd}/platforms  — add a single platform tag
+# ---------------------------------------------------------------------------
+
+@firm_platforms_router.post("/{crd}/platforms", response_model=list[FirmPlatformTag], status_code=201)
+def add_firm_platform(
+    crd: int,
+    body: AddFirmPlatformRequest,
+    db: Session = Depends(get_db),
+) -> list[FirmPlatformTag]:
+    try:
+        platform_service.bulk_tag_firms(
+            [{"crd_number": crd, "platform_id": body.platform_id}], None, None, db
+        )
+        rows = platform_service.get_firm_platforms(crd, db)
+        return [FirmPlatformTag(**r) for r in rows]
+    except HTTPException:
+        raise
+    except Exception:
+        log.error("add_firm_platform(%s) error\n%s", crd, traceback.format_exc())
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

@@ -19,6 +19,10 @@ class PlatformCreate(BaseModel):
     save_brochures: bool = False
 
 
+class AddFirmPlatformRequest(BaseModel):
+    platform_id: int
+
+
 class SetFirmPlatformsRequest(BaseModel):
     platform_ids: list[int] = Field(..., min_length=0)
     tagged_by: str | None = None
