@@ -128,49 +128,49 @@ cd frontend && npm run dev
 
 Data loading is a one-time bulk operation followed by monthly incremental syncs. Each step is independent — you can stop and resume at any point.
 
-### Step 1 — Download and import bulk historical CSV data
+### Step 1 — Download and import bulk historical CSV data (2000–2024)
 
-This downloads ~3 GB of ZIP files from sec.gov and imports every ADV filing from Oct 2000 through Dec 2024 into PostgreSQL. It populates the `firms` and `firm_aum_history` tables.
+This downloads ~3 GB of ZIP files from sec.gov and imports every ADV filing from Oct 2000 through Dec 2024 into PostgreSQL.
 
-**Expected time:** 45–90 minutes depending on your connection and disk speed.
+**Expected time:** 60–90 minutes depending on your connection and disk speed.
 
 ```bash
 make load-data
 ```
 
-This runs three scripts in sequence:
-1. `scripts/load_bulk_csv.py` — downloads ZIPs, parses `IA_MAIN.csv`, upserts firms and AUM history
-2. `scripts/index_firms_to_es.py` — indexes all firms into Elasticsearch for fuzzy search
-3. `scripts/backfill_annual_aum.py` — populates the `aum_2023`/`aum_2024` convenience columns
+This runs four scripts in sequence:
+1. `scripts/load_bulk_csv.py` — downloads 3 legacy ZIPs, parses `IA_MAIN.csv`, upserts firms and AUM history (2000–2024)
+2. `scripts/load_filing_data.py` — fetches `reports_metadata.json` from SEC, downloads all pending `advFilingData` and `advW` ZIPs (2025+), upserts firms and marks withdrawals
+3. `scripts/index_firms_to_es.py` — indexes all firms into Elasticsearch for fuzzy search
+4. `scripts/backfill_annual_aum.py` — populates the `aum_2023`/`aum_2024` convenience columns
 
-You can run them individually if needed:
+Each step is idempotent — `load_filing_data.py` tracks processed files in the `sync_manifest` table and skips anything already marked complete. You can run scripts individually if needed:
 
 ```bash
 docker compose exec api python scripts/load_bulk_csv.py
+docker compose exec api python scripts/load_filing_data.py
 docker compose exec api python scripts/index_firms_to_es.py
 docker compose exec api python scripts/backfill_annual_aum.py
 ```
 
-> **Storage:** The raw ZIP files are saved to `./data/raw/csv/` and are not deleted after import. They total ~3 GB. Once the import is confirmed successful, you can delete them to reclaim space.
+> **Storage:** Raw ZIP files are saved to `./data/raw/csv/` and are not deleted after import. They total ~3–4 GB. Once confirmed successful, you can delete them to reclaim space.
 
-### Step 2 — Trigger a manual monthly PDF sync (optional)
+### Step 2 — Trigger a manual monthly sync (optional)
 
-This downloads ADV Part 2 brochure PDFs for the most recent published month.
+This checks `reports_metadata.json` for any new files and processes them (filing data CSVs first, then brochure PDFs).
 
 ```bash
-# Sync the most recent available month
 curl -X POST http://localhost:8000/api/sync/trigger
-
-# Sync a specific month
-curl -X POST "http://localhost:8000/api/sync/trigger?month_str=2025-02"
 ```
 
-PDFs are stored in `./data/brochures/{crd}/`. Budget ~5–10 GB/year for storage.
+Or use the **Run Sync** button on the Sync Dashboard in the frontend. The sync discovers all pending files automatically — no month parameter needed.
+
+PDFs are stored in `./data/brochures/`. Budget ~5–10 GB/year for storage.
 
 ### Step 3 — Verify data loaded correctly
 
 ```bash
-# Check firm count
+# Check sync job status
 curl http://localhost:8000/api/sync/status
 
 # Search for a known firm by name
@@ -182,7 +182,9 @@ curl http://localhost:9200/firms/_count
 
 ### Monthly sync (ongoing)
 
-Celery Beat automatically triggers a PDF sync based on the schedule stored in the `cron_schedules` table (default: 2nd of every month at 06:00 UTC). You can view, edit, enable/disable, or manually trigger schedules from the **Sync → Schedules** tab in the frontend, or via the API (`GET/PATCH /api/schedules`, `POST /api/schedules/{id}/trigger`). Schedule changes take effect within 60 seconds without restarting Beat.
+Celery Beat automatically runs `monthly_data_sync` on the schedule stored in the `cron_schedules` table (default: 2nd of every month at 06:00 UTC). Each run fetches `reports_metadata.json`, adds any new files to the `sync_manifest` table, then processes them in order: filing data → withdrawals → brochure PDFs.
+
+You can view, edit, enable/disable, or manually trigger schedules from the **Sync → Schedules** tab in the frontend, or via the API (`GET/PATCH /api/schedules`, `POST /api/schedules/{id}/trigger`). Schedule changes take effect within 60 seconds without restarting Beat.
 
 ---
 
@@ -296,6 +298,7 @@ mysec/
 │   │   ├── platform.py         # PlatformDefinition, FirmPlatform
 │   │   ├── alert.py            # AlertRule, AlertEvent
 │   │   ├── sync_job.py         # SyncJob
+│   │   ├── sync_manifest.py    # SyncManifestEntry (tracks files from metadata feed)
 │   │   ├── export_job.py       # ExportJob
 │   │   ├── api_key.py          # ApiKey
 │   │   └── cron_schedule.py    # CronSchedule (Beat schedule definitions)
@@ -316,7 +319,8 @@ mysec/
 │   │   ├── change_detector.py  # Snapshot diffing
 │   │   ├── firm_refresh_service.py
 │   │   ├── matcher.py          # Fuzzy name+address matching
-│   │   ├── pdf_sync_service.py # Monthly PDF download
+│   │   ├── metadata_service.py # Fetches reports_metadata.json, manages sync_manifest
+│   │   ├── pdf_sync_service.py # Brochure PDF download (filename-based, no mapping CSV)
 │   │   ├── alert_service.py
 │   │   ├── export_service.py
 │   │   ├── excel_generator.py  # openpyxl DDQ workbook
@@ -326,7 +330,7 @@ mysec/
 │   └── celery_tasks/
 │       ├── app.py              # Celery app configuration
 │       ├── db_scheduler.py     # DatabaseScheduler — loads Beat schedules from DB
-│       ├── monthly_sync.py     # monthly_pdf_sync task
+│       ├── monthly_sync.py     # monthly_data_sync task (filing data + brochures)
 │       ├── refresh_tasks.py    # refresh_firm_task
 │       ├── export_tasks.py     # run_export_job task + cleanup beat task
 │       └── match_tasks.py      # run_bulk_match task
@@ -336,7 +340,8 @@ mysec/
 │   └── versions/               # Auto-generated migration files
 │
 ├── scripts/                    # One-off and admin scripts
-│   ├── load_bulk_csv.py        # MODULE A: bulk historical load
+│   ├── load_bulk_csv.py        # MODULE A1: bulk historical load (2000–2024)
+│   ├── load_filing_data.py     # MODULE A2: 2025+ monthly filing data from metadata feed
 │   ├── index_firms_to_es.py    # Index all firms into Elasticsearch
 │   ├── backfill_annual_aum.py  # MODULE C: populate aum_2023/aum_2024 columns
 │   ├── seed_platforms.py       # Insert default platform definitions
@@ -436,10 +441,14 @@ make migrate
 
 ### Bulk CSV import hangs or fails mid-way
 
-The script is idempotent — restarting it skips already-imported rows:
+Both load scripts are idempotent — re-running skips already-processed data:
 
 ```bash
+# 2000–2024 historical data (skips already-downloaded ZIPs)
 docker compose exec api python scripts/load_bulk_csv.py
+
+# 2025+ monthly data (skips files already complete in sync_manifest)
+docker compose exec api python scripts/load_filing_data.py
 ```
 
 Check the log output for the specific ZIP and row count where it stopped.
@@ -475,7 +484,7 @@ docker compose exec api python scripts/index_firms_to_es.py
 | `make migrate` | Run `alembic upgrade head` in the API container |
 | `make seed` | Insert default platforms and seed Celery Beat schedules |
 | `make seed-schedules` | Seed Celery Beat schedules only |
-| `make load-data` | Full data pipeline: CSV import → ES index → AUM backfill |
+| `make load-data` | Full data pipeline: bulk CSV (2000–2024) → 2025+ filing data → ES index → AUM backfill |
 | `make test` | Run the full pytest suite |
 | `make reindex` | Re-index all firms into Elasticsearch (useful after schema changes) |
 | `make shell` | Open a bash shell inside the API container |
