@@ -2,6 +2,7 @@ import logging
 import traceback
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from db import get_db
@@ -244,3 +245,42 @@ def get_firm_brochures(crd: int, db: Session = Depends(get_db)):
         .order_by(desc(AdvBrochure.date_submitted))
     ).all())
     return [BrochureMeta.model_validate(b) for b in brochures]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/firms/{crd}/brochures/{version_id}/download
+# ---------------------------------------------------------------------------
+
+@router.get("/{crd}/brochures/{version_id}/download", summary="Stream a stored brochure PDF")
+def download_brochure(crd: int, version_id: int, db: Session = Depends(get_db)):
+    from models.brochure import AdvBrochure
+    from services.storage_backends import get_active_backend, key_from_uri
+    from sqlalchemy import select
+
+    row = db.scalars(
+        select(AdvBrochure).where(
+            AdvBrochure.crd_number == crd,
+            AdvBrochure.brochure_version_id == version_id,
+        ).limit(1)
+    ).first()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Brochure not found")
+
+    backend = get_active_backend(db)
+    scheme, key = key_from_uri(row.file_path)
+
+    try:
+        stream = backend.stream(key)
+    except Exception as exc:
+        log.error("download_brochure: failed to stream version_id=%d: %s", version_id, exc)
+        raise HTTPException(status_code=500, detail="Brochure file unavailable")
+
+    safe_name = (row.brochure_name or f"brochure_{version_id}").replace('"', "")
+    filename = f"{safe_name}.pdf"
+
+    return StreamingResponse(
+        stream,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
