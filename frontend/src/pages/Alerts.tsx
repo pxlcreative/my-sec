@@ -105,7 +105,7 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
 // ---------------------------------------------------------------------------
 
 export default function Alerts() {
-  const [tab, setTab] = useState<'rules' | 'events'>('rules')
+  const [tab, setTab] = useState<'rules' | 'events'>('events')
 
   const { data: rules } = useQuery({
     queryKey: ['alert-rules-all'],
@@ -122,7 +122,7 @@ export default function Alerts() {
       </div>
 
       <div className="flex gap-1 border-b border-gray-200 mb-6">
-        {(['rules', 'events'] as const).map((t) => (
+        {(['events', 'rules'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
