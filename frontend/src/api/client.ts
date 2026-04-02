@@ -27,6 +27,14 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  paramsSerializer: (params) =>
+    Object.entries(params)
+      .flatMap(([k, v]) =>
+        Array.isArray(v)
+          ? v.map((item) => `${encodeURIComponent(k)}=${encodeURIComponent(item)}`)
+          : v != null ? [`${encodeURIComponent(k)}=${encodeURIComponent(v)}`] : []
+      )
+      .join('&'),
 })
 
 // Firms

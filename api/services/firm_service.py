@@ -55,7 +55,7 @@ class FirmFilters:
     aum_min: int | None = None
     aum_max: int | None = None
     registration_status: str | None = None
-    platform_id: int | None = None
+    platform_ids: list[int] = field(default_factory=list)
     search_query: str | None = None
 
 
@@ -94,12 +94,12 @@ def list_firms(
         stmt = stmt.where(Firm.aum_total >= filters.aum_min)
     if filters.aum_max is not None:
         stmt = stmt.where(Firm.aum_total <= filters.aum_max)
-    if filters.platform_id is not None:
+    if filters.platform_ids:
         stmt = stmt.join(
             FirmPlatform,
             (FirmPlatform.crd_number == Firm.crd_number)
-            & (FirmPlatform.platform_id == filters.platform_id),
-        )
+            & (FirmPlatform.platform_id.in_(filters.platform_ids)),
+        ).distinct()
     if filters.search_query:
         q = filters.search_query.strip()
         tsquery = func.plainto_tsquery("english", q)

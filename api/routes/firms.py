@@ -56,7 +56,7 @@ def list_firms(
     aum_min: int | None = Query(None, ge=0),
     aum_max: int | None = Query(None, ge=0),
     registration_status: str | None = Query(None),
-    platform_id: int | None = Query(None),
+    platform_ids: list[int] = Query(default=[]),
     q: str | None = Query(None, description="Search query (applied via GIN index)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
@@ -68,7 +68,7 @@ def list_firms(
             aum_min=aum_min,
             aum_max=aum_max,
             registration_status=registration_status,
-            platform_id=platform_id,
+            platform_ids=platform_ids,
             search_query=q,
         )
         total, firms = firm_service.list_firms(filters, page, page_size, db)
