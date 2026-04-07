@@ -20,6 +20,12 @@ import type {
   CronScheduleOut,
   StorageSettingsOut,
   StorageTestResult,
+  QuestionnaireTemplateOut,
+  QuestionnaireTemplateDetailOut,
+  QuestionnaireQuestionOut,
+  QuestionnaireResponseOut,
+  FirmQuestionnaireListItem,
+  FieldDefOut,
 } from '../types'
 
 const api = axios.create({
@@ -249,6 +255,120 @@ export async function updateStorageSettings(
 
 export async function testStorageConnection(): Promise<StorageTestResult> {
   const response = await api.post('/settings/storage/test')
+  return response.data
+}
+
+// Questionnaires — template management
+export async function getQuestionnaires(): Promise<QuestionnaireTemplateOut[]> {
+  const response = await api.get('/questionnaires')
+  return response.data
+}
+
+export async function createQuestionnaire(data: {
+  name: string
+  description?: string
+  style_type?: string
+}): Promise<QuestionnaireTemplateOut> {
+  const response = await api.post('/questionnaires', data)
+  return response.data
+}
+
+export async function getQuestionnaire(id: number): Promise<QuestionnaireTemplateDetailOut> {
+  const response = await api.get(`/questionnaires/${id}`)
+  return response.data
+}
+
+export async function updateQuestionnaire(
+  id: number,
+  data: { name: string; description?: string; style_type?: string }
+): Promise<QuestionnaireTemplateOut> {
+  const response = await api.put(`/questionnaires/${id}`, data)
+  return response.data
+}
+
+export async function deleteQuestionnaire(id: number): Promise<void> {
+  await api.delete(`/questionnaires/${id}`)
+}
+
+export async function getQuestionnaireFields(): Promise<Record<string, FieldDefOut>> {
+  const response = await api.get('/questionnaires/fields')
+  return response.data
+}
+
+// Questionnaires — question management
+export async function addQuestion(
+  templateId: number,
+  data: {
+    section?: string
+    question_text: string
+    answer_field_path?: string | null
+    answer_hint?: string | null
+    notes_enabled?: boolean
+    order_index?: number
+  }
+): Promise<QuestionnaireQuestionOut> {
+  const response = await api.post(`/questionnaires/${templateId}/questions`, data)
+  return response.data
+}
+
+export async function updateQuestion(
+  templateId: number,
+  questionId: number,
+  data: {
+    section?: string
+    question_text?: string
+    answer_field_path?: string | null
+    answer_hint?: string | null
+    notes_enabled?: boolean
+  }
+): Promise<QuestionnaireQuestionOut> {
+  const response = await api.put(`/questionnaires/${templateId}/questions/${questionId}`, data)
+  return response.data
+}
+
+export async function deleteQuestion(templateId: number, questionId: number): Promise<void> {
+  await api.delete(`/questionnaires/${templateId}/questions/${questionId}`)
+}
+
+export async function reorderQuestions(
+  templateId: number,
+  orderedIds: number[]
+): Promise<void> {
+  await api.put(`/questionnaires/${templateId}/questions/reorder`, { ordered_ids: orderedIds })
+}
+
+// Questionnaires — firm responses
+export async function getFirmQuestionnaires(crd: number): Promise<FirmQuestionnaireListItem[]> {
+  const response = await api.get(`/firms/${crd}/questionnaires`)
+  return response.data
+}
+
+export async function getFirmQuestionnaire(
+  crd: number,
+  templateId: number
+): Promise<QuestionnaireResponseOut> {
+  const response = await api.get(`/firms/${crd}/questionnaires/${templateId}`)
+  return response.data
+}
+
+export async function regenerateFirmQuestionnaire(
+  crd: number,
+  templateId: number
+): Promise<QuestionnaireResponseOut> {
+  const response = await api.post(`/firms/${crd}/questionnaires/${templateId}/regenerate`)
+  return response.data
+}
+
+export async function updateFirmQuestionnaireAnswers(
+  crd: number,
+  templateId: number,
+  data: {
+    answers?: Record<string, string>
+    analyst_notes?: Record<string, string>
+    status?: string
+  }
+): Promise<QuestionnaireResponseOut> {
+  const response = await api.patch(`/firms/${crd}/questionnaires/${templateId}/answers`, data)
   return response.data
 }
 

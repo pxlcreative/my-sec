@@ -264,3 +264,60 @@ export interface StorageTestResult {
   backend: string
   message: string
 }
+
+// Questionnaires
+export interface QuestionnaireTemplateOut {
+  id: number
+  name: string
+  description: string | null
+  style_type: string
+  created_at: string | null
+  updated_at: string | null
+  question_count: number
+}
+
+export interface QuestionnaireQuestionOut {
+  id: number
+  template_id: number
+  section: string
+  order_index: number
+  question_text: string
+  answer_field_path: string | null
+  answer_hint: string | null
+  notes_enabled: boolean
+  created_at: string | null
+}
+
+export interface QuestionnaireTemplateDetailOut extends QuestionnaireTemplateOut {
+  questions: QuestionnaireQuestionOut[]
+}
+
+export interface QuestionnaireResponseOut {
+  id: number
+  template_id: number
+  crd_number: number
+  generated_at: string | null
+  answers: Record<string, string> | null
+  analyst_notes: Record<string, string> | null
+  ai_suggested: Record<string, string> | null
+  status: string
+  template: QuestionnaireTemplateDetailOut | null
+}
+
+export interface FirmQuestionnaireListItem {
+  template_id: number
+  template_name: string
+  description: string | null
+  style_type: string
+  question_count: number
+  has_response: boolean
+  response_generated_at: string | null
+  response_status: string | null
+}
+
+export interface FieldDefOut {
+  label: string
+  category: string
+  field_type: string
+  example: string
+}

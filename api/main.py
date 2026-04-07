@@ -12,6 +12,7 @@ from routes.export import router as export_router
 from routes.external import router as external_router
 from routes.schedules import router as schedules_router
 from routes.settings import router as settings_router
+from routes.questionnaires import router as questionnaires_router
 from routes.platforms import firm_platforms_router, match_router as platform_match_router, platforms_router
 
 logging.basicConfig(level=settings.log_level.upper())
@@ -65,6 +66,7 @@ app.include_router(excel_router, prefix="/api")
 app.include_router(external_router, prefix="/api")
 app.include_router(schedules_router, prefix="/api")
 app.include_router(settings_router, prefix="/api")
+app.include_router(questionnaires_router, prefix="/api")
 
 
 # ---------------------------------------------------------------------------

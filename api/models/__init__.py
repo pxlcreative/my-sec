@@ -16,3 +16,8 @@ from models.disclosures import FirmDisclosuresSummary  # noqa: F401
 from models.export_template import ExportTemplate  # noqa: F401
 from models.cron_schedule import CronSchedule  # noqa: F401
 from models.sync_manifest import SyncManifestEntry  # noqa: F401
+from models.questionnaire import (  # noqa: F401
+    QuestionnaireTemplate,
+    QuestionnaireQuestion,
+    QuestionnaireResponse,
+)

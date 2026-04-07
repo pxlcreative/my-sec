@@ -18,6 +18,7 @@ migrate:
 seed:
 	docker compose exec api python scripts/seed_platforms.py
 	docker compose exec api python scripts/seed_schedules.py
+	docker compose exec api python scripts/seed_questionnaires.py
 
 seed-schedules:
 	docker compose exec api python scripts/seed_schedules.py

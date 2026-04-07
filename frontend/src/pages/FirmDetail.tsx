@@ -1,35 +1,39 @@
 import { useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link, useParams } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ResponsiveContainer,
-  LineChart,
+  CartesianGrid,
+  Legend,
   Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
 } from 'recharts'
-import { ArrowLeft, Download, ExternalLink, FileText, Plus, X } from 'lucide-react'
+import { ArrowLeft, Download, ExternalLink, FileQuestion, FileText, Loader2, Plus, RefreshCw, X } from 'lucide-react'
 import { Button } from '../components/Button'
 import {
+  addFirmPlatform,
   getFirm,
-  getFirmHistory,
   getFirmAumHistory,
   getFirmBrochures,
+  getFirmHistory,
   getFirmPlatforms,
+  getFirmQuestionnaire,
+  getFirmQuestionnaires,
   getPlatforms,
-  addFirmPlatform,
+  regenerateFirmQuestionnaire,
   removeFirmPlatform,
+  updateFirmQuestionnaireAnswers,
 } from '../api/client'
 import { Skeleton } from '../components/Skeleton'
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/Toast'
 import { formatAum, formatDate } from '../utils'
-import type { FirmDetail as FirmDetailType } from '../types'
+import type { FirmDetail as FirmDetailType, QuestionnaireQuestionOut, QuestionnaireResponseOut } from '../types'
 
-type TabKey = 'overview' | 'adv' | 'aum' | 'brochures' | 'platforms' | 'history'
+type TabKey = 'overview' | 'adv' | 'aum' | 'brochures' | 'platforms' | 'history' | 'questionnaires'
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'overview', label: 'Overview' },
@@ -38,6 +42,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'brochures', label: 'Brochures' },
   { key: 'platforms', label: 'Platform Tags' },
   { key: 'history', label: 'Change History' },
+  { key: 'questionnaires', label: 'Questionnaires' },
 ]
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -90,6 +95,12 @@ export default function FirmDetail() {
     queryKey: ['firm-history', crdNum],
     queryFn: () => getFirmHistory(crdNum),
     enabled: activeTab === 'history',
+  })
+
+  const { data: firmQuestionnaires } = useQuery({
+    queryKey: ['firm-questionnaires', crdNum],
+    queryFn: () => getFirmQuestionnaires(crdNum),
+    enabled: activeTab === 'questionnaires',
   })
 
   const addPlatformMutation = useMutation({
@@ -256,6 +267,15 @@ export default function FirmDetail() {
             <Skeleton className="h-40 w-full" />
           ) : (
             <ChangeHistoryTab history={history} />
+          )}
+        </div>
+      )}
+      {activeTab === 'questionnaires' && (
+        <div>
+          {!firmQuestionnaires ? (
+            <Skeleton className="h-40 w-full" />
+          ) : (
+            <QuestionnairesTab crd={crdNum} questionnaires={firmQuestionnaires} />
           )}
         </div>
       )}
@@ -651,6 +671,282 @@ function ChangeHistoryTab({ history }: { history: Awaited<ReturnType<typeof getF
             ))}
           </tbody>
         </table>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Questionnaire preview panel
+// ---------------------------------------------------------------------------
+
+function QuestionnairePreview({
+  crd,
+  templateId,
+  templateName,
+  onClose,
+}: {
+  crd: number
+  templateId: number
+  templateName: string
+  onClose: () => void
+}) {
+  const { addToast } = useToast()
+  const queryClient = useQueryClient()
+  const [pendingAnswers, setPendingAnswers] = useState<Record<string, string>>({})
+  const [pendingNotes, setPendingNotes] = useState<Record<string, string>>({})
+
+  const { data: response, isLoading } = useQuery({
+    queryKey: ['firm-questionnaire', crd, templateId],
+    queryFn: () => getFirmQuestionnaire(crd, templateId),
+  })
+
+  const saveMutation = useMutation({
+    mutationFn: (data: { answers?: Record<string, string>; analyst_notes?: Record<string, string> }) =>
+      updateFirmQuestionnaireAnswers(crd, templateId, data),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['firm-questionnaire', crd, templateId], updated)
+      setPendingAnswers({})
+      setPendingNotes({})
+      addToast('Answers saved', 'success')
+    },
+    onError: () => addToast('Failed to save answers', 'error'),
+  })
+
+  const regenerateMutation = useMutation({
+    mutationFn: () => regenerateFirmQuestionnaire(crd, templateId),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['firm-questionnaire', crd, templateId], updated)
+      addToast('Answers regenerated from current firm data', 'success')
+    },
+    onError: () => addToast('Failed to regenerate answers', 'error'),
+  })
+
+  const handleAnswerBlur = (questionId: string, value: string) => {
+    const current = response?.answers?.[questionId] ?? ''
+    if (value !== current) {
+      setPendingAnswers(prev => ({ ...prev, [questionId]: value }))
+    }
+  }
+
+  const handleNoteBlur = (questionId: string, value: string) => {
+    const current = response?.analyst_notes?.[questionId] ?? ''
+    if (value !== current) {
+      setPendingNotes(prev => ({ ...prev, [questionId]: value }))
+    }
+  }
+
+  const hasPending = Object.keys(pendingAnswers).length > 0 || Object.keys(pendingNotes).length > 0
+
+  const questions: QuestionnaireQuestionOut[] = response?.template?.questions ?? []
+
+  // Group by section
+  const sections: Record<string, QuestionnaireQuestionOut[]> = {}
+  for (const q of [...questions].sort((a, b) => (a.section < b.section ? -1 : 0) || a.order_index - b.order_index)) {
+    ;(sections[q.section] ??= []).push(q)
+  }
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 bg-gray-50">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-800">{templateName}</h3>
+          {response && (
+            <p className="text-xs text-gray-400 mt-0.5">
+              {questions.length} questions · Last updated {formatDate(response.generated_at)}
+              {' · '}
+              <span className={`font-medium ${response.status === 'final' ? 'text-green-600' : 'text-amber-500'}`}>
+                {response.status}
+              </span>
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {hasPending && (
+            <Button
+              size="sm"
+              onClick={() => saveMutation.mutate({ answers: pendingAnswers, analyst_notes: pendingNotes })}
+              disabled={saveMutation.isPending}
+            >
+              {saveMutation.isPending ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
+              Save changes
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => regenerateMutation.mutate()}
+            disabled={regenerateMutation.isPending}
+            title="Re-resolve all auto-populated answers from current firm data"
+          >
+            <RefreshCw size={12} className={`mr-1 ${regenerateMutation.isPending ? 'animate-spin' : ''}`} />
+            Regenerate
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => window.open(`/api/firms/${crd}/questionnaires/${templateId}/excel`, '_blank')}
+          >
+            <Download size={12} className="mr-1" /> Excel
+          </Button>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600">
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+
+      {/* Table */}
+      {isLoading ? (
+        <div className="p-6"><Skeleton /></div>
+      ) : !response ? (
+        <p className="px-5 py-6 text-sm text-gray-400">Failed to load questionnaire.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 w-8">#</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 w-1/2">Question</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 w-1/4">Answer</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 w-1/4">Analyst Notes</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {Object.entries(sections).map(([section, qs]) => (
+                <>
+                  <tr key={`section-${section}`} className="bg-blue-50">
+                    <td colSpan={4} className="px-3 py-1.5 text-xs font-semibold text-blue-700">{section}</td>
+                  </tr>
+                  {qs.map((q, idx) => {
+                    const qId = String(q.id)
+                    const storedAnswer = response.answers?.[qId] ?? ''
+                    const storedNote = response.analyst_notes?.[qId] ?? ''
+                    const isAutoFilled = Boolean(q.answer_field_path && storedAnswer && storedAnswer !== 'N/A')
+                    const localAnswer = pendingAnswers[qId] ?? storedAnswer
+                    const localNote = pendingNotes[qId] ?? storedNote
+
+                    return (
+                      <tr key={q.id} className="hover:bg-gray-50">
+                        <td className="px-3 py-2 text-xs text-gray-400">{idx + 1}</td>
+                        <td className="px-3 py-2 text-sm text-gray-800">
+                          {q.question_text}
+                          {q.answer_hint && !isAutoFilled && (
+                            <span className="ml-1 text-xs text-gray-400 italic">({q.answer_hint})</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          <textarea
+                            defaultValue={localAnswer}
+                            onBlur={e => handleAnswerBlur(qId, e.target.value)}
+                            rows={1}
+                            className={`w-full text-sm rounded px-2 py-1 border focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none ${
+                              isAutoFilled
+                                ? 'bg-blue-50 border-blue-100 text-blue-900'
+                                : 'bg-yellow-50 border-yellow-100'
+                            }`}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          {q.notes_enabled ? (
+                            <textarea
+                              defaultValue={localNote}
+                              onBlur={e => handleNoteBlur(qId, e.target.value)}
+                              rows={1}
+                              placeholder="Add note..."
+                              className="w-full text-sm bg-gray-50 border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
+                            />
+                          ) : (
+                            <span className="text-gray-300 text-xs">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function QuestionnairesTab({
+  crd,
+  questionnaires,
+}: {
+  crd: number
+  questionnaires: Awaited<ReturnType<typeof getFirmQuestionnaires>>
+}) {
+  const [activeTemplateId, setActiveTemplateId] = useState<number | null>(null)
+
+  if (questionnaires.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center bg-white rounded-lg border border-gray-200">
+        <FileQuestion size={40} className="text-gray-200 mb-3" />
+        <p className="text-gray-500 font-medium">No questionnaire templates configured.</p>
+        <p className="text-sm text-gray-400 mt-1">
+          Go to{' '}
+          <Link to="/questionnaires" className="text-brand-600 hover:underline">
+            Questionnaires
+          </Link>{' '}
+          to create templates, or run <code className="bg-gray-100 px-1 rounded">make seed</code>.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Template cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {questionnaires.map(item => (
+          <button
+            key={item.template_id}
+            onClick={() => setActiveTemplateId(
+              activeTemplateId === item.template_id ? null : item.template_id
+            )}
+            className={`text-left p-4 rounded-lg border transition-all ${
+              activeTemplateId === item.template_id
+                ? 'border-brand-500 bg-brand-50 shadow-sm'
+                : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
+            }`}
+          >
+            <div className="flex items-start justify-between">
+              <div className="font-medium text-sm text-gray-800">{item.template_name}</div>
+              {item.has_response ? (
+                <span className={`ml-2 text-xs px-1.5 py-0.5 rounded shrink-0 ${
+                  item.response_status === 'final'
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {item.response_status}
+                </span>
+              ) : (
+                <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-400 shrink-0">new</span>
+              )}
+            </div>
+            {item.description && (
+              <p className="text-xs text-gray-400 mt-1 line-clamp-2">{item.description}</p>
+            )}
+            <div className="text-xs text-gray-400 mt-2">
+              {item.question_count} question{item.question_count !== 1 ? 's' : ''}
+              {item.response_generated_at && ` · ${formatDate(item.response_generated_at)}`}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Preview panel */}
+      {activeTemplateId && (
+        <QuestionnairePreview
+          crd={crd}
+          templateId={activeTemplateId}
+          templateName={questionnaires.find(q => q.template_id === activeTemplateId)?.template_name ?? ''}
+          onClose={() => setActiveTemplateId(null)}
+        />
       )}
     </div>
   )

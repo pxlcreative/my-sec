@@ -1,21 +1,23 @@
 import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import {
-  Building2,
-  GitMerge,
-  Tag,
   Bell,
-  Download,
-  RefreshCw,
-  Settings,
+  Building2,
   ChevronLeft,
   ChevronRight,
+  Download,
+  FileQuestion,
+  GitMerge,
+  RefreshCw,
+  Settings,
+  Tag,
 } from 'lucide-react'
 
 const navItems = [
   { label: 'Firm Search', icon: Building2, to: '/', end: true },
   { label: 'Bulk Match', icon: GitMerge, to: '/match' },
   { label: 'Platforms', icon: Tag, to: '/platforms' },
+  { label: 'Questionnaires', icon: FileQuestion, to: '/questionnaires' },
   { label: 'Alerts', icon: Bell, to: '/alerts' },
   { label: 'Export', icon: Download, to: '/export' },
   { label: 'Sync', icon: RefreshCw, to: '/sync' },

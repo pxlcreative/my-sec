@@ -11,6 +11,7 @@ import Alerts from './pages/Alerts'
 import Export from './pages/Export'
 import Sync from './pages/Sync'
 import Settings from './pages/Settings'
+import Questionnaires from './pages/Questionnaires'
 
 export default function App() {
   return (
@@ -86,6 +87,14 @@ export default function App() {
             element={
               <ErrorBoundary>
                 <Settings />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/questionnaires"
+            element={
+              <ErrorBoundary>
+                <Questionnaires />
               </ErrorBoundary>
             }
           />
