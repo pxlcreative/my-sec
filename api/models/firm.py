@@ -46,6 +46,7 @@ class Firm(Base):
     aum_2024: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime.datetime | None] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime.datetime | None] = mapped_column(server_default=func.now(), onupdate=func.now())
+    last_iapd_refresh_at: Mapped[datetime.datetime | None] = mapped_column(nullable=True)
 
     snapshots: Mapped[list["FirmSnapshot"]] = relationship(back_populates="firm")
     changes: Mapped[list["FirmChange"]] = relationship(back_populates="firm")

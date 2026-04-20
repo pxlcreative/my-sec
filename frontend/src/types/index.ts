@@ -29,7 +29,25 @@ export interface FirmDetail extends FirmSummary {
   fiscal_year_end: string | null
   created_at: string | null
   updated_at: string | null
+  last_iapd_refresh_at: string | null
   latest_brochure: BrochureMeta | null
+}
+
+export interface DisclosuresSummary {
+  crd_number: number
+  criminal_count: number
+  regulatory_count: number
+  civil_count: number
+  customer_count: number
+  total_count: number
+  updated_at: string | null
+}
+
+export interface BusinessProfile {
+  client_types: string[]
+  compensation_types: string[]
+  investment_strategies: string[]
+  affiliations: { type: string; name: string }[]
 }
 
 export interface PaginatedFirms {

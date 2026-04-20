@@ -44,6 +44,7 @@ class FirmDetail(FirmSummary):
     aum_2024: int | None
     created_at: datetime.datetime | None
     updated_at: datetime.datetime | None
+    last_iapd_refresh_at: datetime.datetime | None = None
     # Only included when ?include_raw_adv=true
     raw_adv: Any | None = None
     # Latest brochure metadata (None if no brochures stored)
@@ -107,6 +108,25 @@ class PaginatedFirms(BaseModel):
     page: int
     page_size: int
     results: list[FirmSummary]
+
+
+class DisclosuresSummaryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    crd_number: int
+    criminal_count: int
+    regulatory_count: int
+    civil_count: int
+    customer_count: int
+    total_count: int
+    updated_at: datetime.datetime | None = None
+
+
+class BusinessProfileOut(BaseModel):
+    client_types: list[str]
+    compensation_types: list[str]
+    investment_strategies: list[str]
+    affiliations: list[dict]
 
 
 class SyncStatusEntry(BaseModel):

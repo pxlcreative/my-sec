@@ -11,13 +11,15 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { ArrowLeft, Download, ExternalLink, FileQuestion, FileText, Loader2, Plus, RefreshCw, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle, Download, ExternalLink, FileQuestion, FileText, Loader2, Plus, RefreshCw, X } from 'lucide-react'
 import { Button } from '../components/Button'
 import {
   addFirmPlatform,
   getFirm,
   getFirmAumHistory,
   getFirmBrochures,
+  getFirmBusinessProfile,
+  getFirmDisclosures,
   getFirmHistory,
   getFirmPlatforms,
   getFirmQuestionnaire,
@@ -31,13 +33,14 @@ import { Skeleton } from '../components/Skeleton'
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/Toast'
 import { formatAum, formatDate } from '../utils'
-import type { FirmDetail as FirmDetailType, QuestionnaireQuestionOut, QuestionnaireResponseOut } from '../types'
+import type { BusinessProfile, DisclosuresSummary, FirmDetail as FirmDetailType, QuestionnaireQuestionOut } from '../types'
 
-type TabKey = 'overview' | 'adv' | 'aum' | 'brochures' | 'platforms' | 'history' | 'questionnaires'
+type TabKey = 'overview' | 'disclosures' | 'business-profile' | 'aum' | 'brochures' | 'platforms' | 'history' | 'questionnaires'
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'overview', label: 'Overview' },
-  { key: 'adv', label: 'ADV Data' },
+  { key: 'disclosures', label: 'Disclosures' },
+  { key: 'business-profile', label: 'Business Profile' },
   { key: 'aum', label: 'AUM History' },
   { key: 'brochures', label: 'Brochures' },
   { key: 'platforms', label: 'Platform Tags' },
@@ -54,6 +57,30 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
   )
 }
 
+function FreshnessChip({ lastIapdRefreshAt, lastFilingDate }: { lastIapdRefreshAt: string | null; lastFilingDate: string | null }) {
+  if (lastIapdRefreshAt) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">
+        <CheckCircle className="w-3 h-3" />
+        Verified {formatDate(lastIapdRefreshAt)}
+      </span>
+    )
+  }
+  if (lastFilingDate) {
+    const filingYear = new Date(lastFilingDate).getFullYear()
+    const twoYearsAgo = new Date().getFullYear() - 2
+    if (filingYear <= twoYearsAgo) {
+      return (
+        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-700">
+          <AlertTriangle className="w-3 h-3" />
+          Status unverified
+        </span>
+      )
+    }
+  }
+  return null
+}
+
 export default function FirmDetail() {
   const { crd } = useParams<{ crd: string }>()
   const crdNum = Number(crd)
@@ -67,6 +94,12 @@ export default function FirmDetail() {
     queryFn: () => getFirm(crdNum),
   })
 
+  const { data: disclosures } = useQuery({
+    queryKey: ['firm-disclosures', crdNum],
+    queryFn: () => getFirmDisclosures(crdNum),
+    enabled: !!firm,
+  })
+
   const { data: aumHistory } = useQuery({
     queryKey: ['aum-history', crdNum],
     queryFn: () => getFirmAumHistory(crdNum),
@@ -77,6 +110,12 @@ export default function FirmDetail() {
     queryKey: ['brochures', crdNum],
     queryFn: () => getFirmBrochures(crdNum),
     enabled: activeTab === 'brochures',
+  })
+
+  const { data: businessProfile } = useQuery({
+    queryKey: ['firm-business-profile', crdNum],
+    queryFn: () => getFirmBusinessProfile(crdNum),
+    enabled: activeTab === 'business-profile',
   })
 
   const { data: firmPlatforms } = useQuery({
@@ -155,6 +194,8 @@ export default function FirmDetail() {
       ? 'bg-red-100 text-red-800'
       : 'bg-gray-100 text-gray-700'
 
+  const totalDisclosures = disclosures ? disclosures.total_count : 0
+
   return (
     <div>
       {/* Back link */}
@@ -167,7 +208,7 @@ export default function FirmDetail() {
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">{firm.legal_name}</h1>
-          <div className="flex items-center gap-3 mt-2">
+          <div className="flex items-center gap-3 mt-2 flex-wrap">
             <a
               href={`https://adviserinfo.sec.gov/firm/summary/${firm.crd_number}`}
               target="_blank"
@@ -181,6 +222,16 @@ export default function FirmDetail() {
               <span className={`text-xs font-medium px-2 py-0.5 rounded ${statusColor}`}>
                 {firm.registration_status}
               </span>
+            )}
+            <FreshnessChip lastIapdRefreshAt={firm.last_iapd_refresh_at} lastFilingDate={firm.last_filing_date} />
+            {totalDisclosures > 0 && (
+              <button
+                onClick={() => setActiveTab('disclosures')}
+                className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+              >
+                <AlertTriangle className="w-3 h-3" />
+                {totalDisclosures} disclosure{totalDisclosures !== 1 ? 's' : ''}
+              </button>
             )}
             {firm.main_city && firm.main_state && (
               <span className="text-sm text-gray-500">
@@ -201,26 +252,42 @@ export default function FirmDetail() {
 
       {/* Tabs */}
       <div className="border-b border-gray-200 mb-6">
-        <nav className="flex gap-0 -mb-px">
+        <nav className="flex gap-0 -mb-px overflow-x-auto">
           {TABS.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.key
                   ? 'border-brand-600 text-brand-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
               {tab.label}
+              {tab.key === 'disclosures' && totalDisclosures > 0 && (
+                <span className="ml-1.5 inline-flex items-center justify-center min-w-[1.1rem] px-1 h-4 text-xs rounded-full bg-gray-200 text-gray-600">
+                  {totalDisclosures}
+                </span>
+              )}
             </button>
           ))}
         </nav>
       </div>
 
       {/* Tab content */}
-      {activeTab === 'overview' && <OverviewTab firm={firm} />}
-      {activeTab === 'adv' && <AdvDataTab firm={firm} />}
+      {activeTab === 'overview' && <OverviewTab firm={firm} disclosures={disclosures ?? null} onDisclosuresClick={() => setActiveTab('disclosures')} />}
+      {activeTab === 'disclosures' && (
+        <DisclosuresTab crd={crdNum} disclosures={disclosures ?? null} />
+      )}
+      {activeTab === 'business-profile' && (
+        <div>
+          {!businessProfile ? (
+            <Skeleton className="h-80 w-full" />
+          ) : (
+            <BusinessProfileTab profile={businessProfile} />
+          )}
+        </div>
+      )}
       {activeTab === 'aum' && (
         <div>
           {!aumHistory ? (
@@ -283,7 +350,17 @@ export default function FirmDetail() {
   )
 }
 
-function OverviewTab({ firm }: { firm: FirmDetailType }) {
+function OverviewTab({
+  firm,
+  disclosures,
+  onDisclosuresClick,
+}: {
+  firm: FirmDetailType
+  disclosures: DisclosuresSummary | null
+  onDisclosuresClick: () => void
+}) {
+  const hasDisclosures = disclosures && disclosures.total_count > 0
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div className="bg-white rounded-lg border border-gray-200 p-5">
@@ -296,9 +373,24 @@ function OverviewTab({ firm }: { firm: FirmDetailType }) {
           <DetailRow label="Registration Status" value={
             firm.registration_status ? <StatusBadge status={firm.registration_status} /> : null
           } />
-          <DetailRow label="Firm Type" value={firm.firm_type} />
           <DetailRow label="Org Type" value={firm.org_type} />
           <DetailRow label="Last Filing Date" value={formatDate(firm.last_filing_date)} />
+          {hasDisclosures && (
+            <DetailRow label="Disclosures" value={
+              <button onClick={onDisclosuresClick} className="inline-flex items-center gap-1.5 text-sm text-red-700 hover:text-red-800">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>
+                  {disclosures.criminal_count > 0 && `${disclosures.criminal_count} criminal`}
+                  {disclosures.criminal_count > 0 && disclosures.regulatory_count > 0 && ' · '}
+                  {disclosures.regulatory_count > 0 && `${disclosures.regulatory_count} regulatory`}
+                  {(disclosures.criminal_count > 0 || disclosures.regulatory_count > 0) && disclosures.civil_count > 0 && ' · '}
+                  {disclosures.civil_count > 0 && `${disclosures.civil_count} civil`}
+                  {(disclosures.criminal_count > 0 || disclosures.regulatory_count > 0 || disclosures.civil_count > 0) && disclosures.customer_count > 0 && ' · '}
+                  {disclosures.customer_count > 0 && `${disclosures.customer_count} customer`}
+                </span>
+              </button>
+            } />
+          )}
         </dl>
       </div>
       <div className="bg-white rounded-lg border border-gray-200 p-5">
@@ -334,10 +426,11 @@ function OverviewTab({ firm }: { firm: FirmDetailType }) {
         </dl>
       </div>
       <div className="bg-white rounded-lg border border-gray-200 p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Record Info</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Sync Info</h3>
         <dl>
           <DetailRow label="Created At" value={formatDate(firm.created_at)} />
           <DetailRow label="Updated At" value={formatDate(firm.updated_at)} />
+          <DetailRow label="Last IAPD Refresh" value={firm.last_iapd_refresh_at ? formatDate(firm.last_iapd_refresh_at) : 'Never'} />
           {firm.platforms && firm.platforms.length > 0 && (
             <DetailRow label="Platforms" value={
               <div className="flex flex-wrap gap-1">
@@ -353,36 +446,148 @@ function OverviewTab({ firm }: { firm: FirmDetailType }) {
   )
 }
 
-function AdvDataTab({ firm }: { firm: FirmDetailType }) {
+function DisclosuresTab({ crd, disclosures }: { crd: number; disclosures: DisclosuresSummary | null }) {
+  if (!disclosures) {
+    return <Skeleton className="h-40 w-full" />
+  }
+
+  const noRecord = disclosures.total_count === 0 && !disclosures.updated_at
+  if (noRecord) {
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+        <p className="text-gray-500 font-medium">Disclosure data not available</p>
+        <p className="text-sm text-gray-400 mt-1">Run bulk CSV load or check IAPD directly.</p>
+        <a
+          href={`https://adviserinfo.sec.gov/firm/summary/${crd}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 mt-3 text-sm text-brand-600 hover:underline"
+        >
+          View on IAPD <ExternalLink className="w-3.5 h-3.5" />
+        </a>
+      </div>
+    )
+  }
+
+  const cards = [
+    { label: 'Criminal', count: disclosures.criminal_count },
+    { label: 'Regulatory', count: disclosures.regulatory_count },
+    { label: 'Civil', count: disclosures.civil_count },
+    { label: 'Customer Disputes', count: disclosures.customer_count },
+  ]
+
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-5">
-      <h3 className="text-sm font-semibold text-gray-700 mb-3">ADV Part 1 Data</h3>
-      <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
-        <DetailRow label="CRD Number" value={firm.crd_number} />
-        <DetailRow label="SEC Number" value={firm.sec_number} />
-        <DetailRow label="Legal Name" value={firm.legal_name} />
-        <DetailRow label="Business Name" value={firm.business_name} />
-        <DetailRow label="Registration Status" value={
-          firm.registration_status ? <StatusBadge status={firm.registration_status} /> : null
-        } />
-        <DetailRow label="Firm Type" value={firm.firm_type} />
-        <DetailRow label="Org Type" value={firm.org_type} />
-        <DetailRow label="Total AUM" value={formatAum(firm.aum_total)} />
-        <DetailRow label="Discretionary AUM" value={formatAum(firm.aum_discretionary)} />
-        <DetailRow label="Non-Discretionary AUM" value={formatAum(firm.aum_non_discretionary)} />
-        <DetailRow label="Num. Accounts" value={firm.num_accounts?.toLocaleString()} />
-        <DetailRow label="Num. Employees" value={firm.num_employees?.toLocaleString()} />
-        <DetailRow label="Fiscal Year End" value={firm.fiscal_year_end} />
-        <DetailRow label="Last Filing Date" value={formatDate(firm.last_filing_date)} />
-        <DetailRow label="Main Address" value={[firm.main_street1, firm.main_city, firm.main_state, firm.main_zip].filter(Boolean).join(', ')} />
-        <DetailRow label="Phone" value={firm.phone} />
-        <DetailRow label="Website" value={firm.website} />
-      </dl>
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {cards.map((c) => (
+          <div key={c.label} className="rounded-lg border border-gray-200 bg-gray-50 p-5 text-center">
+            <div className="text-3xl font-bold text-gray-900 tabular-nums leading-tight">{c.count.toLocaleString()}</div>
+            <div className="text-sm font-medium text-gray-500 mt-1">{c.label}</div>
+          </div>
+        ))}
+      </div>
+      <div className="bg-white rounded-lg border border-gray-200 p-5 flex items-center justify-between">
+        <p className="text-sm text-gray-500">
+          Counts from SEC DRP filings (loaded with bulk CSV).
+          {disclosures.updated_at && ` Last updated ${formatDate(disclosures.updated_at)}.`}
+        </p>
+        <a
+          href={`https://adviserinfo.sec.gov/firm/summary/${crd}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-sm text-brand-600 hover:underline whitespace-nowrap ml-4"
+        >
+          View full disclosures on IAPD <ExternalLink className="w-3.5 h-3.5" />
+        </a>
+      </div>
     </div>
   )
 }
 
-function AumHistoryTab({ aumHistory }: { aumHistory: ReturnType<typeof getFirmAumHistory> extends Promise<infer T> ? T : never }) {
+function Chip({ label }: { label: string }) {
+  return (
+    <span className="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-brand-50 text-brand-800 border border-brand-100">
+      {label}
+    </span>
+  )
+}
+
+function BusinessProfileTab({ profile }: { profile: BusinessProfile }) {
+  const isEmpty =
+    profile.client_types.length === 0 &&
+    profile.compensation_types.length === 0 &&
+    profile.investment_strategies.length === 0 &&
+    profile.affiliations.length === 0
+
+  if (isEmpty) {
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+        <p className="text-gray-500 font-medium">Business profile data not yet available</p>
+        <p className="text-sm text-gray-400 mt-1">Will populate after next automated IAPD verification.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Clients Served</h3>
+        {profile.client_types.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {profile.client_types.map((t) => <Chip key={t} label={t} />)}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400">Not available</p>
+        )}
+      </div>
+      <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Compensation Arrangements</h3>
+        {profile.compensation_types.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {profile.compensation_types.map((t) => <Chip key={t} label={t} />)}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400">Not available</p>
+        )}
+      </div>
+      <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Investment Strategies</h3>
+        {profile.investment_strategies.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {profile.investment_strategies.map((t) => <Chip key={t} label={t} />)}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400">Not available</p>
+        )}
+      </div>
+      <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Business Affiliations</h3>
+        {profile.affiliations.length > 0 ? (
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-3 py-1.5 text-left text-xs font-semibold text-gray-600 uppercase">Type</th>
+                <th className="px-3 py-1.5 text-left text-xs font-semibold text-gray-600 uppercase">Name</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {profile.affiliations.map((a, i) => (
+                <tr key={i}>
+                  <td className="px-3 py-2 text-gray-700">{a.type || '—'}</td>
+                  <td className="px-3 py-2 text-gray-700">{a.name || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="text-sm text-gray-400">No affiliations on file</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function AumHistoryTab({ aumHistory }: { aumHistory: Awaited<ReturnType<typeof getFirmAumHistory>> }) {
   const chartData = aumHistory.filings.map((f) => ({
     date: f.filing_date,
     aum_total: f.aum_total,
@@ -411,30 +616,9 @@ function AumHistoryTab({ aumHistory }: { aumHistory: ReturnType<typeof getFirmAu
               labelFormatter={(label) => `Date: ${label}`}
             />
             <Legend />
-            <Line
-              type="monotone"
-              dataKey="aum_total"
-              stroke="#2563eb"
-              name="Total AUM"
-              dot={false}
-              strokeWidth={2}
-            />
-            <Line
-              type="monotone"
-              dataKey="aum_discretionary"
-              stroke="#16a34a"
-              name="Discretionary"
-              dot={false}
-              strokeWidth={1.5}
-            />
-            <Line
-              type="monotone"
-              dataKey="aum_non_discretionary"
-              stroke="#ea580c"
-              name="Non-Discretionary"
-              dot={false}
-              strokeWidth={1.5}
-            />
+            <Line type="monotone" dataKey="aum_total" stroke="#2563eb" name="Total AUM" dot={false} strokeWidth={2} />
+            <Line type="monotone" dataKey="aum_discretionary" stroke="#16a34a" name="Discretionary" dot={false} strokeWidth={1.5} />
+            <Line type="monotone" dataKey="aum_non_discretionary" stroke="#ea580c" name="Non-Discretionary" dot={false} strokeWidth={1.5} />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -511,9 +695,7 @@ function BrochuresTab({
                 </td>
                 <td className="px-4 py-2 font-mono text-xs">{b.source_month ?? '—'}</td>
                 <td className="px-4 py-2 text-sm">
-                  {b.file_size_bytes
-                    ? `${(b.file_size_bytes / 1024).toFixed(0)} KB`
-                    : '—'}
+                  {b.file_size_bytes ? `${(b.file_size_bytes / 1024).toFixed(0)} KB` : '—'}
                 </td>
                 <td className="px-4 py-2">
                   <a
@@ -740,7 +922,6 @@ function QuestionnairePreview({
 
   const questions: QuestionnaireQuestionOut[] = response?.template?.questions ?? []
 
-  // Group by section
   const sections: Record<string, QuestionnaireQuestionOut[]> = {}
   for (const q of [...questions].sort((a, b) => (a.section < b.section ? -1 : 0) || a.order_index - b.order_index)) {
     ;(sections[q.section] ??= []).push(q)
@@ -748,7 +929,6 @@ function QuestionnairePreview({
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-      {/* Toolbar */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 bg-gray-50">
         <div>
           <h3 className="text-sm font-semibold text-gray-800">{templateName}</h3>
@@ -796,7 +976,6 @@ function QuestionnairePreview({
         </div>
       </div>
 
-      {/* Table */}
       {isLoading ? (
         <div className="p-6"><Skeleton /></div>
       ) : !response ? (
@@ -900,7 +1079,6 @@ function QuestionnairesTab({
 
   return (
     <div className="space-y-4">
-      {/* Template cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {questionnaires.map(item => (
           <button
@@ -939,7 +1117,6 @@ function QuestionnairesTab({
         ))}
       </div>
 
-      {/* Preview panel */}
       {activeTemplateId && (
         <QuestionnairePreview
           crd={crd}

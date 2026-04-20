@@ -132,6 +132,11 @@ def monthly_data_sync(self, job_id: int | None = None) -> dict:
             batch_evaluate_alerts.delay()
             _log_event("Enqueued batch alert evaluation for all active rules")
 
+            # Re-verify registration status for stale 'Registered' firms via live IAPD
+            from celery_tasks.refresh_tasks import batch_verify_registration_status
+            batch_verify_registration_status.delay()
+            _log_event("Enqueued batch registration status verification for stale registered firms")
+
             return result
 
         except Exception as exc:

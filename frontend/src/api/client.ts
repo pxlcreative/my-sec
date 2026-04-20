@@ -5,6 +5,8 @@ import type {
   FirmHistoryResponse,
   AumHistoryResponse,
   BrochureMeta,
+  BusinessProfile,
+  DisclosuresSummary,
   PlatformOut,
   FirmSummary,
   FirmPlatformTag,
@@ -69,6 +71,16 @@ export async function getFirmAumHistory(crd: number): Promise<AumHistoryResponse
 
 export async function getFirmBrochures(crd: number): Promise<BrochureMeta[]> {
   const response = await api.get(`/firms/${crd}/brochures`)
+  return response.data
+}
+
+export async function getFirmDisclosures(crd: number): Promise<DisclosuresSummary> {
+  const response = await api.get(`/firms/${crd}/disclosures`)
+  return response.data
+}
+
+export async function getFirmBusinessProfile(crd: number): Promise<BusinessProfile> {
+  const response = await api.get(`/firms/${crd}/business-profile`)
   return response.data
 }
 

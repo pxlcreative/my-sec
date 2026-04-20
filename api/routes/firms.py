@@ -11,7 +11,9 @@ from schemas.firm import (
     AumHistoryPoint,
     AumHistoryResponse,
     BrochureMeta,
+    BusinessProfileOut,
     ChangeRecord,
+    DisclosuresSummaryOut,
     FirmDetail,
     FirmHistoryResponse,
     FirmSummary,
@@ -160,6 +162,7 @@ def get_firm(
             aum_2024=firm.aum_2024,
             created_at=firm.created_at,
             updated_at=firm.updated_at,
+            last_iapd_refresh_at=firm.last_iapd_refresh_at,
             platforms=platform_map.get(crd, []),
             raw_adv=firm.raw_adv if include_raw_adv else None,
             latest_brochure=BrochureMeta.model_validate(brochure) if brochure else None,
@@ -283,4 +286,141 @@ def download_brochure(crd: int, version_id: int, db: Session = Depends(get_db)):
         stream,
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/firms/{crd}/disclosures
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/{crd}/disclosures",
+    response_model=DisclosuresSummaryOut,
+    summary="Disclosure counts for a firm",
+)
+def get_firm_disclosures(crd: int, db: Session = Depends(get_db)):
+    from models.disclosures import FirmDisclosuresSummary
+
+    firm_service.get_firm(crd, db)  # raises 404 if not found
+
+    row = db.get(FirmDisclosuresSummary, crd)
+    if row is None:
+        return DisclosuresSummaryOut(
+            crd_number=crd,
+            criminal_count=0,
+            regulatory_count=0,
+            civil_count=0,
+            customer_count=0,
+            total_count=0,
+            updated_at=None,
+        )
+    return DisclosuresSummaryOut(
+        crd_number=row.crd_number,
+        criminal_count=row.criminal_count,
+        regulatory_count=row.regulatory_count,
+        civil_count=row.civil_count,
+        customer_count=row.customer_count,
+        total_count=row.criminal_count + row.regulatory_count + row.civil_count + row.customer_count,
+        updated_at=row.updated_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/firms/{crd}/business-profile
+# ---------------------------------------------------------------------------
+
+_BOOL_TRUE = {"Y", "Yes", "true", "1", True, 1}
+
+
+def _extract_checked_labels(mapping: dict | None, keys: list[tuple[str, str]]) -> list[str]:
+    """Return labels where the mapped key value is truthy/Y."""
+    if not mapping:
+        return []
+    return [label for key, label in keys if mapping.get(key) in _BOOL_TRUE]
+
+
+@router.get(
+    "/{crd}/business-profile",
+    response_model=BusinessProfileOut,
+    summary="Business profile parsed from raw ADV data",
+)
+def get_firm_business_profile(crd: int, db: Session = Depends(get_db)):
+    firm = firm_service.get_firm(crd, db)
+
+    raw = firm.raw_adv
+    if not raw:
+        return BusinessProfileOut(
+            client_types=[],
+            compensation_types=[],
+            investment_strategies=[],
+            affiliations=[],
+        )
+
+    def _get(*keys):
+        d = raw
+        for k in keys:
+            if not isinstance(d, dict):
+                return None
+            d = d.get(k)
+        return d
+
+    # Item 5D — client types (Q5D1 is a dict of checkbox keys)
+    client_map = _get("FormInfo", "Part1A", "Item5D", "Q5D1") or {}
+    client_keys = [
+        ("Individuals", "Individuals (other than high net worth individuals)"),
+        ("HighNetWorth", "High net worth individuals"),
+        ("BankingInstitutions", "Banking or thrift institutions"),
+        ("InvestmentCompanies", "Investment companies"),
+        ("BusinessDevelopmentCompanies", "Business development companies"),
+        ("PooledInvestmentVehicles", "Pooled investment vehicles"),
+        ("PensionProfitSharing", "Pension and profit-sharing plans"),
+        ("CharitableOrganizations", "Charitable organizations"),
+        ("StateOrMunicipalGovernment", "State or municipal government entities"),
+        ("OtherInstitutionalClients", "Other institutional clients"),
+        ("OtherClients", "Other"),
+    ]
+    client_types = _extract_checked_labels(client_map, client_keys)
+
+    # Item 5E — compensation types (Q5E is a dict of checkbox keys)
+    comp_map = _get("FormInfo", "Part1A", "Item5E", "Q5E") or {}
+    comp_keys = [
+        ("APercentageOfAssetsUnderManagement", "A percentage of assets under management"),
+        ("HourlyCharges", "Hourly charges"),
+        ("SubscriptionFees", "Subscription fees"),
+        ("FixedFees", "Fixed fees"),
+        ("Commissions", "Commissions"),
+        ("PerformanceBasedFees", "Performance-based fees"),
+        ("OtherFees", "Other"),
+    ]
+    compensation_types = _extract_checked_labels(comp_map, comp_keys)
+
+    # Item 6 — investment strategy types (Q6A is a dict of checkbox keys)
+    strategy_map = _get("FormInfo", "Part1A", "Item6", "Q6A") or {}
+    strategy_keys = [
+        ("LongTermPurchases", "Long-term purchases"),
+        ("ShortTermPurchases", "Short-term purchases"),
+        ("TradingShortSales", "Short sales"),
+        ("MarginTransactions", "Margin transactions"),
+        ("OptionWritingPurchasing", "Options"),
+        ("FuturesContracts", "Futures contracts"),
+        ("OtherMethods", "Other"),
+    ]
+    investment_strategies = _extract_checked_labels(strategy_map, strategy_keys)
+
+    # Item 7 — financial industry affiliations (list of affiliation objects)
+    item7 = _get("FormInfo", "Part1A", "Item7") or {}
+    affiliations_raw = item7.get("Q7A") or []
+    if isinstance(affiliations_raw, dict):
+        affiliations_raw = [affiliations_raw]
+    affiliations = [
+        {"type": a.get("AffiliationType", ""), "name": a.get("AffiliationName", "")}
+        for a in affiliations_raw
+        if isinstance(a, dict) and (a.get("AffiliationType") or a.get("AffiliationName"))
+    ]
+
+    return BusinessProfileOut(
+        client_types=client_types,
+        compensation_types=compensation_types,
+        investment_strategies=investment_strategies,
+        affiliations=affiliations,
     )

@@ -70,6 +70,7 @@ def refresh_firm(crd: int, db: Session) -> list[dict]:
             for attr, val in updateable.items():
                 setattr(firm, attr, val)
             firm.raw_adv = raw
+            firm.last_iapd_refresh_at = datetime.now(timezone.utc)
 
         db.commit()
 
@@ -85,6 +86,9 @@ def refresh_firm(crd: int, db: Session) -> list[dict]:
                 log.warning("refresh_firm(%d): alert evaluation failed (non-fatal): %s", crd, exc)
     else:
         log.debug("refresh_firm(%d): no change (hash=%s)", crd, new_hash[:12])
+        firm: Firm | None = db.get(Firm, crd)
+        if firm:
+            firm.last_iapd_refresh_at = datetime.now(timezone.utc)
         db.commit()  # commit the AUM history row added below
 
     # 5. AUM history — always insert a record for the current observation

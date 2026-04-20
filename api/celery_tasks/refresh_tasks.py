@@ -1,6 +1,8 @@
 """
 Celery tasks for live firm data refresh via IAPD.
 """
+from __future__ import annotations
+
 import logging
 
 from celery_tasks.app import app
@@ -38,5 +40,37 @@ def refresh_firm_task(self, crd_number: int) -> dict:
         except Exception as exc:
             log.exception("refresh_firm_task(%d) failed (attempt %d)", crd_number, self.request.retries + 1)
             raise self.retry(exc=exc, countdown=30 * (self.request.retries + 1))
+
+
+@app.task(name="refresh_tasks.batch_verify_registration_status")
+def batch_verify_registration_status(stale_days: int = 730, refresh_cooldown_days: int = 30) -> dict:
+    """
+    Enqueue refresh_firm_task for all 'Registered' firms whose data may be stale:
+    - last_filing_date is more than stale_days ago (default 2 years), AND
+    - last_iapd_refresh_at is null or older than refresh_cooldown_days (default 30 days)
+    """
+    import datetime
+    from sqlalchemy import select, or_
+
+    from db import SessionLocal
+    from models.firm import Firm
+
+    stale_cutoff = datetime.date.today() - datetime.timedelta(days=stale_days)
+    refresh_cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=refresh_cooldown_days)
+
+    with SessionLocal() as session:
+        stmt = (
+            select(Firm.crd_number)
+            .where(Firm.registration_status == "Registered")
+            .where(or_(Firm.last_filing_date.is_(None), Firm.last_filing_date < stale_cutoff))
+            .where(or_(Firm.last_iapd_refresh_at.is_(None), Firm.last_iapd_refresh_at < refresh_cutoff))
+        )
+        crds = [row[0] for row in session.execute(stmt)]
+
+    for crd in crds:
+        refresh_firm_task.delay(crd)
+
+    log.info("batch_verify_registration_status: enqueued %d firms", len(crds))
+    return {"enqueued": len(crds)}
 
 
