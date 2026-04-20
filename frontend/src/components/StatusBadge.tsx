@@ -40,6 +40,9 @@ function getStatusColor(status: string): string {
   if (s === 'era' || s === 'exempt') {
     return 'bg-purple-100 text-purple-800 border-purple-200'
   }
+  if (s === 'inactive') {
+    return 'bg-gray-100 text-gray-500 border-gray-200'
+  }
   return 'bg-gray-100 text-gray-700 border-gray-200'
 }
 

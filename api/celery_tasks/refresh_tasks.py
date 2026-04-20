@@ -36,6 +36,20 @@ def refresh_firm_task(self, crd_number: int) -> dict:
         except ValueError as exc:
             # CRD not found in IAPD — not retryable
             log.warning("refresh_firm_task(%d): not found in IAPD — %s", crd_number, exc)
+            import datetime
+            from models.firm import Firm
+            stale_cutoff = datetime.date.today() - datetime.timedelta(days=3 * 365)
+            firm = session.get(Firm, crd_number)
+            if (
+                firm
+                and firm.registration_status == "Registered"
+                and firm.last_filing_date
+                and firm.last_filing_date < stale_cutoff
+            ):
+                firm.registration_status = "Inactive"
+                firm.last_iapd_refresh_at = datetime.datetime.now(datetime.timezone.utc)
+                session.commit()
+                log.info("refresh_firm_task(%d): marked Inactive (not in IAPD, last filed %s)", crd_number, firm.last_filing_date)
             return {"crd_number": crd_number, "error": str(exc), "changed": False}
         except Exception as exc:
             log.exception("refresh_firm_task(%d) failed (attempt %d)", crd_number, self.request.retries + 1)

@@ -3,7 +3,7 @@ Firm refresh service: pull live IAPD data, diff against last snapshot,
 persist changes, and re-index to Elasticsearch.
 """
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -38,6 +38,16 @@ def refresh_firm(crd: int, db: Session) -> list[dict]:
 
     # 2. Extract
     new_fields = extract_firm_fields(raw)
+
+    # If IAPD returned an EDGAR-format document (no RegistrationStatus),
+    # derive Inactive for firms whose last filing is more than 3 years old
+    if "registration_status" not in new_fields:
+        firm_for_date: Firm | None = db.get(Firm, crd)
+        filing_date = new_fields.get("last_filing_date") or (
+            firm_for_date.last_filing_date if firm_for_date else None
+        )
+        if filing_date and filing_date < date.today() - timedelta(days=3 * 365):
+            new_fields["registration_status"] = "Inactive"
 
     # 3. Hash
     new_hash = sha256_hash(canonical_json(new_fields))

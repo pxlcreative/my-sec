@@ -299,6 +299,7 @@ export default function Search() {
               <option value="">All Statuses</option>
               <option value="Registered">Registered</option>
               <option value="Withdrawn">Withdrawn</option>
+              <option value="Inactive">Inactive</option>
               <option value="Exempt">Exempt</option>
             </select>
           </div>
