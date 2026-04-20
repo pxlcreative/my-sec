@@ -38,7 +38,7 @@ def refresh_firm_task(self, crd_number: int) -> dict:
             log.warning("refresh_firm_task(%d): not found in IAPD — %s", crd_number, exc)
             import datetime
             from models.firm import Firm
-            stale_cutoff = datetime.date.today() - datetime.timedelta(days=3 * 365)
+            stale_cutoff = datetime.date.today() - datetime.timedelta(days=365)
             firm = session.get(Firm, crd_number)
             if (
                 firm

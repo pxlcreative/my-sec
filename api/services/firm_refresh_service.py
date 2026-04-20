@@ -46,7 +46,7 @@ def refresh_firm(crd: int, db: Session) -> list[dict]:
         filing_date = new_fields.get("last_filing_date") or (
             firm_for_date.last_filing_date if firm_for_date else None
         )
-        if filing_date and filing_date < date.today() - timedelta(days=3 * 365):
+        if filing_date and filing_date < date.today() - timedelta(days=365):
             new_fields["registration_status"] = "Inactive"
 
     # 3. Hash
