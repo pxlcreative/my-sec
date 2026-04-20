@@ -4,7 +4,6 @@ import { useQuery } from '@tanstack/react-query'
 import {
   useReactTable,
   getCoreRowModel,
-  getSortedRowModel,
   flexRender,
   createColumnHelper,
   type SortingState,
@@ -26,18 +25,26 @@ export default function Search() {
 
   const [inputValue, setInputValue] = useState(searchParams.get('q') ?? '')
   const [debouncedQ, setDebouncedQ] = useState(searchParams.get('q') ?? '')
-  const [sorting, setSorting] = useState<SortingState>([])
   const [platformDropdownOpen, setPlatformDropdownOpen] = useState(false)
   const platformDropdownRef = useRef<HTMLDivElement>(null)
 
   const state = searchParams.get('state') ?? ''
   const aumMin = searchParams.get('aum_min') ?? ''
   const aumMax = searchParams.get('aum_max') ?? ''
-  const regStatus = searchParams.get('registration_status') ?? ''
+  // Default to 'Registered'; use 'all' in the URL to explicitly show all statuses
+  const regStatus = searchParams.get('registration_status') ?? 'Registered'
   const platformIds = searchParams.getAll('platform_ids')
   const page = parseInt(searchParams.get('page') ?? '1', 10)
+  const sortBy = searchParams.get('sort_by') ?? ''
+  const sortDir = searchParams.get('sort_dir') ?? ''
 
-  const activeFilterCount = [state, aumMin, aumMax, regStatus].filter(Boolean).length + (platformIds.length > 0 ? 1 : 0)
+  // Derive react-table SortingState from URL params
+  const sorting: SortingState = sortBy ? [{ id: sortBy, desc: sortDir !== 'asc' }] : []
+
+  // 'Registered' is the default — don't count it as an active filter
+  const activeFilterCount = [state, aumMin, aumMax].filter(Boolean).length +
+    (regStatus !== 'Registered' ? 1 : 0) +
+    (platformIds.length > 0 ? 1 : 0)
   const [filtersOpen, setFiltersOpen] = useState(activeFilterCount > 0)
 
   // Debounce
@@ -76,8 +83,11 @@ export default function Search() {
   if (state) queryParams.state = state
   if (aumMin) queryParams.aum_min = aumMin
   if (aumMax) queryParams.aum_max = aumMax
-  if (regStatus) queryParams.registration_status = regStatus
+  // 'all' means no status filter; anything else (including default 'Registered') is passed through
+  if (regStatus && regStatus !== 'all') queryParams.registration_status = regStatus
   if (platformIds.length > 0) queryParams.platform_ids = platformIds
+  if (sortBy) queryParams.sort_by = sortBy
+  if (sortDir) queryParams.sort_dir = sortDir
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['firms', debouncedQ, queryParams],
@@ -123,13 +133,32 @@ export default function Search() {
     [setSearchParams]
   )
 
+  const handleSortingChange = useCallback(
+    (updater: SortingState | ((old: SortingState) => SortingState)) => {
+      const next = typeof updater === 'function' ? updater(sorting) : updater
+      setSearchParams((prev) => {
+        const params = new URLSearchParams(prev)
+        if (next.length > 0) {
+          params.set('sort_by', next[0].id)
+          params.set('sort_dir', next[0].desc ? 'desc' : 'asc')
+        } else {
+          params.delete('sort_by')
+          params.delete('sort_dir')
+        }
+        params.set('page', '1')
+        return params
+      })
+    },
+    [sorting, setSearchParams]
+  )
+
   function clearFilters() {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       next.delete('state')
       next.delete('aum_min')
       next.delete('aum_max')
-      next.delete('registration_status')
+      next.delete('registration_status') // absence reverts to default 'Registered'
       next.delete('platform_ids')
       next.set('page', '1')
       return next
@@ -196,10 +225,10 @@ export default function Search() {
     data: data?.results ?? [],
     columns,
     state: { sorting },
-    onSortingChange: setSorting,
+    onSortingChange: handleSortingChange,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
     manualPagination: true,
+    manualSorting: true,
   })
 
   const totalPages = data ? Math.ceil(data.total / data.page_size) : 1
@@ -296,7 +325,7 @@ export default function Search() {
               onChange={(e) => setParam('registration_status', e.target.value)}
               className={`${inputCls} w-36`}
             >
-              <option value="">All Statuses</option>
+              <option value="all">All Statuses</option>
               <option value="Registered">Registered</option>
               <option value="Withdrawn">Withdrawn</option>
               <option value="Inactive">Inactive</option>
@@ -368,7 +397,7 @@ export default function Search() {
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
           Failed to load firms. Please try again.
         </div>
-      ) : data && data.total === 0 && !debouncedQ && !state && !aumMin && !aumMax && !regStatus && platformIds.length === 0 ? (
+      ) : data && data.total === 0 && !debouncedQ && !state && !aumMin && !aumMax && regStatus === 'Registered' && platformIds.length === 0 ? (
         /* No data loaded yet — distinct from "no results for a query" */
         <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
           <Database className="w-12 h-12 mx-auto mb-4 text-gray-300" />

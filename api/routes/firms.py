@@ -61,6 +61,8 @@ def list_firms(
     registration_status: str | None = Query(None),
     platform_ids: list[int] = Query(default=[]),
     q: str | None = Query(None, description="Search query (applied via GIN index)"),
+    sort_by: str | None = Query(None, description="Column to sort by"),
+    sort_dir: str | None = Query(None, description="Sort direction: asc or desc"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
@@ -74,7 +76,7 @@ def list_firms(
             platform_ids=platform_ids,
             search_query=q,
         )
-        total, firms = firm_service.list_firms(filters, page, page_size, db)
+        total, firms = firm_service.list_firms(filters, page, page_size, db, sort_by=sort_by, sort_dir=sort_dir)
         crds = [f.crd_number for f in firms]
         platform_map = firm_service._platform_names_for_crds(db, crds)
         results = [_to_summary(f, platform_map.get(f.crd_number, [])) for f in firms]

@@ -74,11 +74,24 @@ def get_firm(crd: int, session: Session) -> Firm:
 # list_firms
 # ---------------------------------------------------------------------------
 
+_SORT_COLUMNS = {
+    "legal_name": Firm.legal_name,
+    "crd_number": Firm.crd_number,
+    "main_city": Firm.main_city,
+    "main_state": Firm.main_state,
+    "aum_total": Firm.aum_total,
+    "registration_status": Firm.registration_status,
+    "last_filing_date": Firm.last_filing_date,
+}
+
+
 def list_firms(
     filters: FirmFilters,
     page: int,
     page_size: int,
     session: Session,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> tuple[int, list[Firm]]:
     """
     Returns (total_count, firms_for_page).
@@ -120,9 +133,12 @@ def list_firms(
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total: int = session.scalar(count_stmt) or 0
 
+    sort_col = _SORT_COLUMNS.get(sort_by or "", Firm.aum_total)
+    order_expr = sort_col.asc() if sort_dir == "asc" else desc(sort_col)
+
     offset = (page - 1) * page_size
     firms = session.scalars(
-        stmt.order_by(desc(Firm.aum_total)).offset(offset).limit(page_size)
+        stmt.order_by(order_expr).offset(offset).limit(page_size)
     ).all()
 
     return total, list(firms)
