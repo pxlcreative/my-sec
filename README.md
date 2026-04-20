@@ -1,6 +1,6 @@
 # MySEC
 
-A private, self-hosted database of SEC-registered investment adviser firms built on public IAPD/ADV data. Provides full-text and fuzzy firm search, historical AUM time series, ADV Part 2 PDF storage, bulk CRD matching, platform tagging, alerts, and on-demand due diligence Excel workbooks.
+A private, self-hosted database of ~37,000 SEC-registered investment adviser firms built on public IAPD/ADV data. Provides full-text and fuzzy firm search, historical AUM time series, ADV Part 2 PDF storage, bulk CRD matching, platform tagging, alerts, and on-demand due diligence Excel workbooks.
 
 **Stack:** Python 3.12 · FastAPI · PostgreSQL 16 · Elasticsearch 8 · Redis 7 · Celery · React/TypeScript
 
@@ -155,7 +155,26 @@ docker compose exec api python scripts/backfill_annual_aum.py
 
 > **Storage:** Raw ZIP files are saved to `./data/raw/csv/` and are not deleted after import. They total ~3–4 GB. Once confirmed successful, you can delete them to reclaim space.
 
-### Step 2 — Trigger a manual monthly sync (optional)
+### Step 4 — Classify pre-2025 firms as Inactive
+
+The 2000–2024 bulk CSVs did not include a `REGISTRATION_STATUS` column, so all pre-2025 firms were imported with a default status of `Registered`. Run this one-time SQL to reclassify them correctly:
+
+```bash
+docker compose exec postgres psql -U secadv -d secadv -c \
+  "UPDATE firms SET registration_status = 'Inactive' WHERE registration_status = 'Registered' AND last_filing_date < '2025-01-01';"
+```
+
+**This step is required.** Without it, ~19,000 old firms will incorrectly appear as `Registered`. The 2025+ monthly CSVs carry an explicit status column, so only pre-2025 firms need this correction.
+
+After running, confirm the distribution looks roughly correct:
+
+```bash
+docker compose exec postgres psql -U secadv -d secadv -c \
+  "SELECT registration_status, COUNT(*) FROM firms GROUP BY 1 ORDER BY 2 DESC;"
+# Expected: ~17,000 Registered, ~19,000 Inactive, ~1,000+ Withdrawn
+```
+
+### Step 5 — Trigger a manual monthly sync (optional)
 
 This checks `reports_metadata.json` for any new files and processes them (filing data CSVs first, then brochure PDFs).
 
@@ -167,7 +186,7 @@ Or use the **Run Sync** button on the Sync Dashboard in the frontend. The sync d
 
 PDFs are stored in `./data/brochures/`. Budget ~5–10 GB/year for storage.
 
-### Step 3 — Verify data loaded correctly
+### Step 6 — Verify data loaded correctly
 
 ```bash
 # Check sync job status

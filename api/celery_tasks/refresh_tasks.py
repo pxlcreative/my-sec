@@ -57,11 +57,17 @@ def refresh_firm_task(self, crd_number: int) -> dict:
 
 
 @app.task(name="refresh_tasks.batch_verify_registration_status")
-def batch_verify_registration_status(stale_days: int = 730, refresh_cooldown_days: int = 30) -> dict:
+def batch_verify_registration_status(refresh_cooldown_days: int = 30) -> dict:
     """
-    Enqueue refresh_firm_task for all 'Registered' firms whose data may be stale:
-    - last_filing_date is more than stale_days ago (default 2 years), AND
-    - last_iapd_refresh_at is null or older than refresh_cooldown_days (default 30 days)
+    Enqueue refresh_firm_task for 'Registered' firms that appear in the 2025+ monthly
+    CSV data but haven't yet been verified against the live IAPD API.
+
+    Scope: last_filing_date >= 2025-01-01 (new data format with explicit registration_status)
+    and last_iapd_refresh_at is null or older than refresh_cooldown_days.
+
+    Pre-2025 firms are already classified as 'Inactive' — they are excluded here because
+    the old bulk CSV data defaulted registration_status to 'Registered' without confirmation,
+    and live IAPD returns EDGAR-format documents for those CRDs (no usable status field).
     """
     import datetime
     from sqlalchemy import select, or_
@@ -69,14 +75,14 @@ def batch_verify_registration_status(stale_days: int = 730, refresh_cooldown_day
     from db import SessionLocal
     from models.firm import Firm
 
-    stale_cutoff = datetime.date.today() - datetime.timedelta(days=stale_days)
+    monthly_data_start = datetime.date(2025, 1, 1)
     refresh_cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=refresh_cooldown_days)
 
     with SessionLocal() as session:
         stmt = (
             select(Firm.crd_number)
             .where(Firm.registration_status == "Registered")
-            .where(or_(Firm.last_filing_date.is_(None), Firm.last_filing_date < stale_cutoff))
+            .where(Firm.last_filing_date >= monthly_data_start)
             .where(or_(Firm.last_iapd_refresh_at.is_(None), Firm.last_iapd_refresh_at < refresh_cutoff))
         )
         crds = [row[0] for row in session.execute(stmt)]
