@@ -13,7 +13,7 @@ import requests
 log = logging.getLogger(__name__)
 
 _EFTS_URL = "https://efts.sec.gov/LATEST/search-index"
-_RATE_LIMIT_SLEEP = 0.5      # seconds between every call
+_RATE_LIMIT_SLEEP = 2.0      # seconds between every call
 _RETRY_BACKOFF_BASE = 2.0    # exponential base for 429/503 retries
 _MAX_RETRIES = 3
 _HEADERS = {"User-Agent": "MySEC/1.0 (private research tool; dan@pxlcreative.com)"}

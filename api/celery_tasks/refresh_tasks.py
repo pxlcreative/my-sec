@@ -10,7 +10,7 @@ from celery_tasks.app import app
 log = logging.getLogger(__name__)
 
 
-@app.task(bind=True, name="refresh_tasks.refresh_firm_task", max_retries=2)
+@app.task(bind=True, name="refresh_tasks.refresh_firm_task", max_retries=2, rate_limit='10/m')
 def refresh_firm_task(self, crd_number: int) -> dict:
     """
     Refresh a single firm from the IAPD API.

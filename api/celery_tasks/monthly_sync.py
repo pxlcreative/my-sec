@@ -262,10 +262,10 @@ def _parse_advw_csv(zip_path) -> list[dict]:
         with zf.open(csv_names[0]) as raw:
             text = io.TextIOWrapper(raw, encoding="utf-8-sig", errors="replace", newline="")
             reader = csv.DictReader(text)
-            fieldnames = [f.strip().upper() for f in (reader.fieldnames or [])]
-            # Map original fieldnames to upper for lookup
+            # Normalize headers: strip, uppercase, replace spaces with underscores
+            # so "CRD Number" → "CRD_NUMBER" and "Filing Date" → "FILING_DATE"
             orig = reader.fieldnames or []
-            upper_map = {f.strip().upper(): f for f in orig}
+            upper_map = {f.strip().upper().replace(" ", "_"): f for f in orig}
 
             crd_col = next(
                 (upper_map[k] for k in ("CRD_NUMBER", "FIRM_CRD_NUMBER", "CRD") if k in upper_map),
@@ -276,7 +276,7 @@ def _parse_advw_csv(zip_path) -> list[dict]:
                 None,
             )
             if not crd_col:
-                log.warning("_parse_advw_csv: no CRD column found in %s", zip_path.name)
+                log.warning("_parse_advw_csv: no CRD column found in %s; headers: %s", zip_path.name, list(upper_map.keys()))
                 return rows
 
             import sys
@@ -288,7 +288,10 @@ def _parse_advw_csv(zip_path) -> list[dict]:
 
             for row in reader:
                 crd = _int_or_none(row.get(crd_col, ""))
-                filing_date = _parse_date(row.get(date_col, "")) if date_col else None
+                raw_date = (row.get(date_col, "") or "").strip() if date_col else ""
+                # advW dates are "MM/DD/YYYY HH:MM:SS AM/PM" — strip time component before parsing
+                date_part = raw_date.split(" ")[0] if raw_date else ""
+                filing_date = _parse_date(date_part) if date_part else None
                 if crd:
                     rows.append({"crd": crd, "filing_date": filing_date})
     return rows

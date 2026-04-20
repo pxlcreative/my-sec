@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { AlertTriangle, ArrowLeft, CheckCircle, Download, ExternalLink, FileQuestion, FileText, Loader2, Plus, RefreshCw, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Download, ExternalLink, FileQuestion, FileText, Loader2, Plus, RefreshCw, X } from 'lucide-react'
 import { Button } from '../components/Button'
 import {
   addFirmPlatform,
@@ -57,28 +57,29 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
   )
 }
 
-function FreshnessChip({ lastIapdRefreshAt, lastFilingDate }: { lastIapdRefreshAt: string | null; lastFilingDate: string | null }) {
-  if (lastIapdRefreshAt) {
+function FreshnessChip({ lastFilingDate }: { lastFilingDate: string | null }) {
+  if (!lastFilingDate) {
     return (
-      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">
-        <CheckCircle className="w-3 h-3" />
-        Verified {formatDate(lastIapdRefreshAt)}
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-700">
+        <AlertTriangle className="w-3 h-3" />
+        No filing date
       </span>
     )
   }
-  if (lastFilingDate) {
-    const filingYear = new Date(lastFilingDate).getFullYear()
-    const twoYearsAgo = new Date().getFullYear() - 2
-    if (filingYear <= twoYearsAgo) {
-      return (
-        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-700">
-          <AlertTriangle className="w-3 h-3" />
-          Status unverified
-        </span>
-      )
-    }
+  const stale = new Date(lastFilingDate) < new Date(new Date().setFullYear(new Date().getFullYear() - 2))
+  if (stale) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-700">
+        <AlertTriangle className="w-3 h-3" />
+        Last filed {formatDate(lastFilingDate)}
+      </span>
+    )
   }
-  return null
+  return (
+    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">
+      Filed {formatDate(lastFilingDate)}
+    </span>
+  )
 }
 
 export default function FirmDetail() {
@@ -223,7 +224,7 @@ export default function FirmDetail() {
                 {firm.registration_status}
               </span>
             )}
-            <FreshnessChip lastIapdRefreshAt={firm.last_iapd_refresh_at} lastFilingDate={firm.last_filing_date} />
+            <FreshnessChip lastFilingDate={firm.last_filing_date} />
             {totalDisclosures > 0 && (
               <button
                 onClick={() => setActiveTab('disclosures')}

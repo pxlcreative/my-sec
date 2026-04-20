@@ -75,6 +75,7 @@ services:
     volumes:
       - ./data:/data
       - ./api:/project/api
+      - ./scripts:/project/scripts
     depends_on:
       postgres:
         condition: service_healthy
