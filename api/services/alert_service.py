@@ -109,10 +109,20 @@ def evaluate_deregistration(rule, firm, changes: list[dict]) -> bool:
 # d. AUM decline evaluator (streaming + batch)
 # ---------------------------------------------------------------------------
 
+_OPS = {
+    "lt":  lambda a, b: a < b,
+    "lte": lambda a, b: a <= b,
+    "gt":  lambda a, b: a > b,
+    "gte": lambda a, b: a >= b,
+}
+
+
 def evaluate_aum_decline(rule, firm, db: Session) -> tuple[bool, dict]:
     """
     Compare firm.aum_total against the most recent filing in the prior calendar year.
     Returns (triggered, {prior_aum, current_aum, pct_change}).
+    threshold_pct is signed: negative means decline, positive means increase.
+    operator controls the comparison: lt/lte/gt/gte.
     """
     from models.aum import FirmAumHistory
 
@@ -140,7 +150,9 @@ def evaluate_aum_decline(rule, firm, db: Session) -> tuple[bool, dict]:
     prior_aum = prior_row.aum_total
     pct_change = (current_aum - prior_aum) / prior_aum * 100
 
-    triggered = pct_change <= -float(rule.threshold_pct)
+    op = rule.operator or "lte"
+    compare = _OPS.get(op, _OPS["lte"])
+    triggered = compare(pct_change, float(rule.threshold_pct))
     return triggered, {
         "prior_aum":    prior_aum,
         "current_aum":  current_aum,
@@ -398,7 +410,13 @@ def evaluate_alerts_for_firm(crd: int, changes: list[dict], db: Session) -> None
                     fire_alert(rule, firm, extra, db, firm_change_id=None)
 
             elif rule.rule_type == "field_change" and rule.field_path:
-                if any(c["field_path"] == rule.field_path for c in changes):
+                matching = [
+                    c for c in changes
+                    if c["field_path"] == rule.field_path
+                    and (rule.match_old_value is None or c.get("old_value") == rule.match_old_value)
+                    and (rule.match_new_value is None or c.get("new_value") == rule.match_new_value)
+                ]
+                if matching:
                     fc_id = recent_changes.get(rule.field_path)
                     fire_alert(rule, firm, {}, db, firm_change_id=fc_id)
 
@@ -578,6 +596,10 @@ def _evaluate_field_change_batch(rule, db: Session) -> int:
     )
     if inscope is not None:
         stmt = stmt.where(FirmChange.crd_number.in_(inscope))
+    if rule.match_old_value is not None:
+        stmt = stmt.where(FirmChange.old_value == rule.match_old_value)
+    if rule.match_new_value is not None:
+        stmt = stmt.where(FirmChange.new_value == rule.match_new_value)
 
     changes = list(db.scalars(stmt).all())
 

@@ -127,7 +127,10 @@ export interface AlertRuleOut {
   platform_ids: number[] | null
   crd_numbers: number[] | null
   threshold_pct: number | null
+  operator: string | null
   field_path: string | null
+  match_old_value: string | null
+  match_new_value: string | null
   delivery: string
   delivery_target: string | null
   active: boolean

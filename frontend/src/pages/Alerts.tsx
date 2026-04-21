@@ -29,12 +29,19 @@ import type { AlertRuleOut, AlertEventOut } from '../types'
 
 const RULE_TYPES = [
   { value: 'deregistration', label: 'Deregistration' },
-  { value: 'aum_decline', label: 'AUM Decline %' },
+  { value: 'aum_decline_pct', label: 'AUM Change %' },
   { value: 'field_change', label: 'Field Change' },
 ]
 
+const AUM_OPERATORS = [
+  { value: 'lte', label: 'declined by ≥' },
+  { value: 'lt',  label: 'declined by >'  },
+  { value: 'gte', label: 'increased by ≥' },
+  { value: 'gt',  label: 'increased by >'  },
+]
+
 const DELIVERY_TYPES = [
-  { value: 'log', label: 'Log Only' },
+  { value: 'in_app', label: 'Log Only' },
   { value: 'email', label: 'Email' },
   { value: 'webhook', label: 'Webhook' },
 ]
@@ -43,7 +50,7 @@ const DELIVERY_STATUSES = ['sent', 'failed', 'pending', 'test', 'logged']
 
 const TYPE_COLORS: Record<string, string> = {
   deregistration: '#ef4444',
-  aum_decline: '#f59e0b',
+  aum_decline_pct: '#f59e0b',
   field_change: '#3b82f6',
 }
 
@@ -66,7 +73,7 @@ function DeliveryBadge({ delivery }: { delivery: string }) {
   const colors: Record<string, string> = {
     email: 'bg-blue-100 text-blue-800',
     webhook: 'bg-purple-100 text-purple-800',
-    log: 'bg-gray-100 text-gray-600',
+    in_app: 'bg-gray-100 text-gray-600',
   }
   return (
     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[delivery] ?? 'bg-gray-100 text-gray-600'}`}>
@@ -158,10 +165,13 @@ function RulesTab({ rules, activeCount }: { rules: AlertRuleOut[] | undefined; a
   const [form, setForm] = useState({
     label: '',
     rule_type: 'deregistration',
-    delivery: 'log',
+    delivery: 'in_app',
     delivery_target: '',
     threshold_pct: '',
+    operator: 'lte',
     field_path: '',
+    match_old_value: '',
+    match_new_value: '',
     platform_ids: [] as number[],
   })
   const [testingId, setTestingId] = useState<number | null>(null)
@@ -181,15 +191,25 @@ function RulesTab({ rules, activeCount }: { rules: AlertRuleOut[] | undefined; a
         delivery: form.delivery,
       }
       if (form.delivery_target.trim()) payload.delivery_target = form.delivery_target.trim()
-      if (form.rule_type === 'aum_decline' && form.threshold_pct) payload.threshold_pct = Number(form.threshold_pct)
-      if (form.rule_type === 'field_change' && form.field_path.trim()) payload.field_path = form.field_path.trim()
+      if (form.rule_type === 'aum_decline_pct' && form.threshold_pct !== '') {
+        // Convert operator + positive input to signed threshold_pct
+        const raw = Math.abs(Number(form.threshold_pct))
+        const isDecline = form.operator === 'lte' || form.operator === 'lt'
+        payload.threshold_pct = isDecline ? -raw : raw
+        payload.operator = form.operator
+      }
+      if (form.rule_type === 'field_change') {
+        if (form.field_path.trim()) payload.field_path = form.field_path.trim()
+        if (form.match_old_value.trim()) payload.match_old_value = form.match_old_value.trim()
+        if (form.match_new_value.trim()) payload.match_new_value = form.match_new_value.trim()
+      }
       if (form.platform_ids.length > 0) payload.platform_ids = form.platform_ids
       return createAlertRule(payload)
     },
     onSuccess: async (rule) => {
       queryClient.invalidateQueries({ queryKey: ['alert-rules-all'] })
       setShowForm(false)
-      setForm({ label: '', rule_type: 'deregistration', delivery: 'log', delivery_target: '', threshold_pct: '', field_path: '', platform_ids: [] })
+      setForm({ label: '', rule_type: 'deregistration', delivery: 'in_app', delivery_target: '', threshold_pct: '', operator: 'lte', field_path: '', match_old_value: '', match_new_value: '', platform_ids: [] })
       try {
         const evalResult = await evaluateAlertRule(rule.id)
         queryClient.invalidateQueries({ queryKey: ['alert-events'] })
@@ -315,25 +335,60 @@ function RulesTab({ rules, activeCount }: { rules: AlertRuleOut[] | undefined; a
               </div>
             </div>
 
-            {form.rule_type === 'aum_decline' && (
+            {form.rule_type === 'aum_decline_pct' && (
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Threshold % (decline)</label>
-                <input type="number" min="1" max="100" value={form.threshold_pct}
-                  onChange={(e) => setForm((f) => ({ ...f, threshold_pct: e.target.value }))}
-                  placeholder="e.g. 20"
-                  className="w-full text-sm border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-brand-600 outline-none"
-                />
+                <label className="block text-xs font-medium text-gray-600 mb-1">AUM Change Condition</label>
+                <div className="flex gap-2 items-center">
+                  <select
+                    value={form.operator}
+                    onChange={(e) => setForm((f) => ({ ...f, operator: e.target.value }))}
+                    className="text-sm border border-gray-300 rounded-md px-2 py-2 focus:ring-2 focus:ring-brand-600 outline-none"
+                  >
+                    {AUM_OPERATORS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1000"
+                    step="0.1"
+                    value={form.threshold_pct}
+                    onChange={(e) => setForm((f) => ({ ...f, threshold_pct: e.target.value }))}
+                    placeholder="e.g. 20"
+                    className="w-28 text-sm border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-brand-600 outline-none"
+                  />
+                  <span className="text-sm text-gray-500">%</span>
+                </div>
               </div>
             )}
 
             {form.rule_type === 'field_change' && (
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Field Path</label>
-                <input type="text" value={form.field_path}
-                  onChange={(e) => setForm((f) => ({ ...f, field_path: e.target.value }))}
-                  placeholder="e.g. registration_status"
-                  className="w-full text-sm border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-brand-600 outline-none"
-                />
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Field Path <span className="text-red-500">*</span></label>
+                  <input type="text" value={form.field_path}
+                    onChange={(e) => setForm((f) => ({ ...f, field_path: e.target.value }))}
+                    placeholder="e.g. registration_status"
+                    className="w-full text-sm border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-brand-600 outline-none"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Old value <span className="text-gray-400">(optional)</span></label>
+                    <input type="text" value={form.match_old_value}
+                      onChange={(e) => setForm((f) => ({ ...f, match_old_value: e.target.value }))}
+                      placeholder="e.g. Registered"
+                      className="w-full text-sm border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-brand-600 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">New value <span className="text-gray-400">(optional)</span></label>
+                    <input type="text" value={form.match_new_value}
+                      onChange={(e) => setForm((f) => ({ ...f, match_new_value: e.target.value }))}
+                      placeholder="e.g. Withdrawn"
+                      className="w-full text-sm border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-brand-600 outline-none"
+                    />
+                  </div>
+                </div>
               </div>
             )}
 
@@ -410,7 +465,16 @@ function RulesTab({ rules, activeCount }: { rules: AlertRuleOut[] | undefined; a
                 <tr key={rule.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-medium text-gray-900">
                     {rule.label}
-                    {rule.threshold_pct != null && <span className="ml-2 text-xs text-gray-400">≥{rule.threshold_pct}%</span>}
+                    {rule.rule_type === 'aum_decline_pct' && rule.threshold_pct != null && (
+                      <span className="ml-2 text-xs text-gray-400 font-mono">
+                        {AUM_OPERATORS.find((o) => o.value === (rule.operator ?? 'lte'))?.label ?? rule.operator}{' '}{Math.abs(rule.threshold_pct)}%
+                      </span>
+                    )}
+                    {rule.rule_type === 'field_change' && (rule.match_old_value || rule.match_new_value) && (
+                      <span className="ml-2 text-xs text-gray-400 font-mono">
+                        {rule.match_old_value ? `"${rule.match_old_value}"` : '*'}{' → '}{rule.match_new_value ? `"${rule.match_new_value}"` : '*'}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-gray-600">{rule.rule_type.replace(/_/g, ' ')}</td>
                   <td className="px-4 py-3"><DeliveryBadge delivery={rule.delivery} /></td>
@@ -567,7 +631,7 @@ function EventsTab({ rules }: { rules: AlertRuleOut[] }) {
 
   // Chart data: by rule type
   const typeData = useMemo(() => {
-    return ['deregistration', 'aum_decline', 'field_change'].map((type) => ({
+    return ['deregistration', 'aum_decline_pct', 'field_change'].map((type) => ({
       name: type.replace(/_/g, ' '),
       type,
       count: filtered.filter((e) => e.rule_type === type).length,

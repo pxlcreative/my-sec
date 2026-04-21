@@ -5,18 +5,22 @@ from pydantic import BaseModel, ConfigDict, Field
 
 AlertRuleType = Literal["deregistration", "aum_decline_pct", "field_change"]
 AlertDelivery = Literal["in_app", "email", "webhook"]
+AlertOperator = Literal["lt", "lte", "gt", "gte"]
 DeliveryStatus = Literal["pending", "sent", "failed"]
 
 
 class AlertRuleCreate(BaseModel):
     label: str = Field(..., min_length=1, max_length=200)
     rule_type: AlertRuleType
-    platform_ids: list[int] | None = None      # None = applies to all firms
+    platform_ids: list[int] | None = None
     crd_numbers: list[int] | None = None
-    threshold_pct: float | None = Field(default=None, ge=0, le=100)
+    threshold_pct: float | None = None          # signed %; negative = decline
+    operator: AlertOperator | None = "lte"      # comparison operator for threshold_pct
     field_path: str | None = None
+    match_old_value: str | None = None          # optional filter on old_value for field_change
+    match_new_value: str | None = None          # optional filter on new_value for field_change
     delivery: AlertDelivery = "in_app"
-    delivery_target: str | None = None         # email address or webhook URL
+    delivery_target: str | None = None
     active: bool = True
 
 
@@ -24,8 +28,11 @@ class AlertRuleUpdate(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=200)
     platform_ids: list[int] | None = None
     crd_numbers: list[int] | None = None
-    threshold_pct: float | None = Field(default=None, ge=0, le=100)
+    threshold_pct: float | None = None
+    operator: AlertOperator | None = None
     field_path: str | None = None
+    match_old_value: str | None = None
+    match_new_value: str | None = None
     delivery: AlertDelivery | None = None
     delivery_target: str | None = None
     active: bool | None = None
@@ -40,7 +47,10 @@ class AlertRuleOut(BaseModel):
     platform_ids: list[int] | None
     crd_numbers: list[int] | None
     threshold_pct: float | None
+    operator: str | None
     field_path: str | None
+    match_old_value: str | None
+    match_new_value: str | None
     delivery: str
     delivery_target: str | None
     active: bool

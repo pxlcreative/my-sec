@@ -15,8 +15,11 @@ class AlertRule(Base):
     rule_type: Mapped[str] = mapped_column(Text, nullable=False)
     platform_ids: Mapped[list[int] | None] = mapped_column(ARRAY(Integer))
     crd_numbers: Mapped[list[int] | None] = mapped_column(ARRAY(Integer))
-    threshold_pct: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    threshold_pct: Mapped[float | None] = mapped_column(Numeric(6, 2))
+    operator: Mapped[str | None] = mapped_column(Text, server_default="lte")
     field_path: Mapped[str | None] = mapped_column(Text)
+    match_old_value: Mapped[str | None] = mapped_column(Text)
+    match_new_value: Mapped[str | None] = mapped_column(Text)
     delivery: Mapped[str] = mapped_column(
         Text, nullable=False, server_default="in_app"
     )
