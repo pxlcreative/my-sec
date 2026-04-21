@@ -11,6 +11,7 @@ import {
   Edit2,
 } from 'lucide-react'
 import { Button } from '../components/Button'
+import { FieldPathSelect } from '../components/FieldPathSelect'
 import { Skeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 import {
@@ -92,13 +93,6 @@ function QuestionRow({
     onError: () => addToast('Failed to delete question', 'error'),
   })
 
-  // Group fields by category for the dropdown
-  const categories: Record<string, Array<[string, FieldDefOut]>> = {}
-  Object.entries(fields).forEach(([path, def]) => {
-    if (path === 'raw_adv.*') return  // handled separately
-    ;(categories[def.category] ??= []).push([path, def])
-  })
-
   if (!editing) {
     return (
       <tr className="hover:bg-gray-50 group">
@@ -171,30 +165,13 @@ function QuestionRow({
               Auto-populate from field
               <span className="text-gray-400 ml-1 font-normal">(optional)</span>
             </label>
-            <select
+            <FieldPathSelect
               value={fieldPath}
-              onChange={e => setFieldPath(e.target.value)}
-              className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500"
-            >
-              <option value="">— none (manual answer) —</option>
-              {Object.entries(categories).map(([cat, entries]) => (
-                <optgroup key={cat} label={cat}>
-                  {entries.map(([path, def]) => (
-                    <option key={path} value={path}>{def.label}</option>
-                  ))}
-                </optgroup>
-              ))}
-              <optgroup label="Raw ADV">
-                <option value="raw_adv.*">Raw ADV dot-path (type below)</option>
-              </optgroup>
-            </select>
-            {fieldPath === 'raw_adv.*' && (
-              <input
-                placeholder="e.g. raw_adv.FormInfo.Part1A.Item5F.Q5F2C"
-                className="mt-1 w-full text-xs border border-gray-300 rounded px-2 py-1 font-mono"
-                onBlur={e => setFieldPath(e.target.value)}
-              />
-            )}
+              onChange={setFieldPath}
+              fields={fields}
+              placeholder="— none (manual answer) —"
+              className="focus:ring-1 focus:ring-brand-500 rounded"
+            />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -277,12 +254,6 @@ function AddQuestionRow({
     onError: () => addToast('Failed to add question', 'error'),
   })
 
-  const categories: Record<string, Array<[string, FieldDefOut]>> = {}
-  Object.entries(fields).forEach(([path, def]) => {
-    if (path === 'raw_adv.*') return
-    ;(categories[def.category] ??= []).push([path, def])
-  })
-
   if (!open) {
     return (
       <tr>
@@ -323,20 +294,13 @@ function AddQuestionRow({
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Auto-populate from field</label>
-            <select
+            <FieldPathSelect
               value={fieldPath}
-              onChange={e => setFieldPath(e.target.value)}
-              className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500"
-            >
-              <option value="">— none —</option>
-              {Object.entries(categories).map(([cat, entries]) => (
-                <optgroup key={cat} label={cat}>
-                  {entries.map(([path, def]) => (
-                    <option key={path} value={path}>{def.label}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+              onChange={setFieldPath}
+              fields={fields}
+              placeholder="— none —"
+              className="focus:ring-1 focus:ring-brand-500 rounded"
+            />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Answer hint</label>

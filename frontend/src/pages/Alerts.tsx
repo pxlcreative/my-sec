@@ -17,8 +17,10 @@ import {
   evaluateAlertRule,
   getAlertEvents,
   getPlatforms,
+  getQuestionnaireFields,
 } from '../api/client'
 import { Skeleton } from '../components/Skeleton'
+import { FieldPathSelect } from '../components/FieldPathSelect'
 import { useToast } from '../components/Toast'
 import { formatDate } from '../utils'
 import type { AlertRuleOut, AlertEventOut } from '../types'
@@ -178,6 +180,7 @@ function RulesTab({ rules, activeCount }: { rules: AlertRuleOut[] | undefined; a
   const [evaluatingId, setEvaluatingId] = useState<number | null>(null)
 
   const { data: platforms } = useQuery({ queryKey: ['platforms'], queryFn: getPlatforms })
+  const { data: fields = {} } = useQuery({ queryKey: ['questionnaire-fields'], queryFn: getQuestionnaireFields })
 
   const isLoading = rules === undefined
 
@@ -364,11 +367,12 @@ function RulesTab({ rules, activeCount }: { rules: AlertRuleOut[] | undefined; a
             {form.rule_type === 'field_change' && (
               <div className="space-y-2">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Field Path <span className="text-red-500">*</span></label>
-                  <input type="text" value={form.field_path}
-                    onChange={(e) => setForm((f) => ({ ...f, field_path: e.target.value }))}
-                    placeholder="e.g. registration_status"
-                    className="w-full text-sm border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-brand-600 outline-none"
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Field <span className="text-red-500">*</span></label>
+                  <FieldPathSelect
+                    value={form.field_path}
+                    onChange={(v) => setForm((f) => ({ ...f, field_path: v }))}
+                    fields={fields}
+                    placeholder="— select a field —"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
