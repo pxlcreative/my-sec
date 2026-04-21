@@ -35,6 +35,7 @@ export default function Search() {
   const regStatus = searchParams.get('registration_status') ?? 'Registered'
   const platformIds = searchParams.getAll('platform_ids')
   const page = parseInt(searchParams.get('page') ?? '1', 10)
+  const pageSize = parseInt(searchParams.get('page_size') ?? '100', 10)
   const sortBy = searchParams.get('sort_by') ?? ''
   const sortDir = searchParams.get('sort_dir') ?? ''
 
@@ -78,7 +79,7 @@ export default function Search() {
 
   const queryParams: Record<string, unknown> = {
     page,
-    page_size: 20,
+    page_size: pageSize,
   }
   if (state) queryParams.state = state
   if (aumMin) queryParams.aum_min = aumMin
@@ -485,28 +486,52 @@ export default function Search() {
             </table>
           </div>
 
-          {/* Pagination — only shown when there are multiple pages */}
-          {data && data.total > 0 && data.total > data.page_size && (
+          {/* Pagination bar — always shown when there are results */}
+          {data && data.total > 0 && (
             <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
-              <p className="text-sm text-gray-500">
-                Page {page} of {totalPages} ({data.total.toLocaleString()} total)
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  disabled={page <= 1}
-                  onClick={() => setParam('page', String(page - 1))}
-                  className="p-1.5 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
+              <div className="flex items-center gap-3">
+                <p className="text-sm text-gray-500">
+                  {data.total > pageSize
+                    ? `Page ${page} of ${totalPages} (${data.total.toLocaleString()} total)`
+                    : `${data.total.toLocaleString()} firm${data.total !== 1 ? 's' : ''}`}
+                </p>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setSearchParams((prev) => {
+                      const next = new URLSearchParams(prev)
+                      next.set('page_size', e.target.value)
+                      next.set('page', '1')
+                      return next
+                    })
+                  }}
+                  className="text-xs border border-gray-300 rounded px-1.5 py-1 text-gray-600 bg-white focus:ring-1 focus:ring-brand-600 outline-none"
                 >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <button
-                  disabled={page >= totalPages}
-                  onClick={() => setParam('page', String(page + 1))}
-                  className="p-1.5 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
+                  <option value="25">25 / page</option>
+                  <option value="50">50 / page</option>
+                  <option value="100">100 / page</option>
+                  <option value="250">250 / page</option>
+                  <option value="500">500 / page</option>
+                </select>
               </div>
+              {data.total > pageSize && (
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={page <= 1}
+                    onClick={() => setParam('page', String(page - 1))}
+                    className="p-1.5 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    disabled={page >= totalPages}
+                    onClick={() => setParam('page', String(page + 1))}
+                    className="p-1.5 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
