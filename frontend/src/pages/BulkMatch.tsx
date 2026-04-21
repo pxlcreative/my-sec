@@ -40,7 +40,7 @@ function parseAddress(address: string): { city?: string; state?: string; zip?: s
 function parseCSV(text: string): { headers: string[]; rows: ParsedRow[] } {
   const lines = text.split('\n').filter((l) => l.trim().length > 0)
   if (lines.length === 0) return { headers: [], rows: [] }
-  const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''))
+  const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, '')).filter((h) => h.length > 0)
   const rows = lines.slice(1).map((line) => {
     const values = line.split(',').map((v) => v.trim().replace(/^"|"$/g, ''))
     const row: ParsedRow = {}
@@ -334,8 +334,8 @@ export default function BulkMatch() {
                         className="w-full text-sm border border-gray-300 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-brand-600 outline-none"
                       >
                         <option value="">— none —</option>
-                        {headers.map((h) => (
-                          <option key={h} value={h}>{h}</option>
+                        {headers.map((h, i) => (
+                          <option key={i} value={h}>{h}</option>
                         ))}
                       </select>
                     </div>
@@ -356,16 +356,16 @@ export default function BulkMatch() {
                     <table className="text-xs w-full">
                       <thead className="bg-gray-50">
                         <tr>
-                          {headers.map((h) => (
-                            <th key={h} className="px-3 py-2 text-left font-semibold text-gray-600 border-b border-gray-200">{h}</th>
+                          {headers.map((h, i) => (
+                            <th key={i} className="px-3 py-2 text-left font-semibold text-gray-600 border-b border-gray-200">{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {previewRows.map((row, i) => (
                           <tr key={i}>
-                            {headers.map((h) => (
-                              <td key={h} className="px-3 py-1.5 text-gray-700">{row[h]}</td>
+                            {headers.map((h, i) => (
+                              <td key={i} className="px-3 py-1.5 text-gray-700">{row[h]}</td>
                             ))}
                           </tr>
                         ))}
