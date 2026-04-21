@@ -426,3 +426,34 @@ def get_firm_business_profile(crd: int, db: Session = Depends(get_db)):
         investment_strategies=investment_strategies,
         affiliations=affiliations,
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/firms/{crd}/refresh
+# ---------------------------------------------------------------------------
+
+@router.post("/{crd}/refresh", summary="Refresh firm data from live IAPD API")
+def refresh_firm(crd: int, db: Session = Depends(get_db)):
+    """
+    Pull fresh data for a single firm from the live IAPD API, update raw_adv,
+    detect field changes, and re-index to Elasticsearch.
+    Runs synchronously — typically completes in 1–3 seconds.
+    """
+    from models.firm import Firm
+    from services.firm_refresh_service import refresh_firm as _refresh
+
+    firm_service.get_firm(crd, db)  # raises 404 if not found
+
+    try:
+        diffs = _refresh(crd, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=f"IAPD lookup failed: {exc}")
+
+    firm = db.get(Firm, crd)
+    return {
+        "crd_number": crd,
+        "changed": len(diffs) > 0,
+        "num_changes": len(diffs),
+        "fields_changed": [d["field_path"] for d in diffs],
+        "last_iapd_refresh_at": firm.last_iapd_refresh_at.isoformat() if firm and firm.last_iapd_refresh_at else None,
+    }

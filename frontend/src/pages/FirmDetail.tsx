@@ -25,6 +25,7 @@ import {
   getFirmQuestionnaire,
   getFirmQuestionnaires,
   getPlatforms,
+  refreshFirm,
   regenerateFirmQuestionnaire,
   removeFirmPlatform,
   updateFirmQuestionnaireAnswers,
@@ -141,6 +142,24 @@ export default function FirmDetail() {
     queryKey: ['firm-questionnaires', crdNum],
     queryFn: () => getFirmQuestionnaires(crdNum),
     enabled: activeTab === 'questionnaires',
+  })
+
+  const refreshMutation = useMutation({
+    mutationFn: () => refreshFirm(crdNum),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['firm', crdNum] })
+      queryClient.invalidateQueries({ queryKey: ['firm-business-profile', crdNum] })
+      queryClient.invalidateQueries({ queryKey: ['aum-history', crdNum] })
+      queryClient.invalidateQueries({ queryKey: ['firm-history', crdNum] })
+      const msg = result.changed
+        ? `Refreshed — ${result.num_changes} field${result.num_changes === 1 ? '' : 's'} updated: ${result.fields_changed.join(', ')}`
+        : 'Refreshed — no changes detected'
+      addToast(msg, result.changed ? 'success' : 'info')
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail ?? 'IAPD refresh failed'
+      addToast(detail, 'error')
+    },
   })
 
   const addPlatformMutation = useMutation({
@@ -285,7 +304,12 @@ export default function FirmDetail() {
           {!businessProfile ? (
             <Skeleton className="h-80 w-full" />
           ) : (
-            <BusinessProfileTab profile={businessProfile} />
+            <BusinessProfileTab
+              profile={businessProfile}
+              lastRefreshed={firm?.last_iapd_refresh_at ?? null}
+              onRefresh={() => refreshMutation.mutate()}
+              isRefreshing={refreshMutation.isPending}
+            />
           )}
         </div>
       )}
@@ -513,24 +537,55 @@ function Chip({ label }: { label: string }) {
   )
 }
 
-function BusinessProfileTab({ profile }: { profile: BusinessProfile }) {
+function BusinessProfileTab({
+  profile,
+  lastRefreshed,
+  onRefresh,
+  isRefreshing,
+}: {
+  profile: BusinessProfile
+  lastRefreshed: string | null
+  onRefresh: () => void
+  isRefreshing: boolean
+}) {
   const isEmpty =
     profile.client_types.length === 0 &&
     profile.compensation_types.length === 0 &&
     profile.investment_strategies.length === 0 &&
     profile.affiliations.length === 0
 
+  const header = (
+    <div className="flex items-center justify-between mb-4">
+      <p className="text-xs text-gray-400">
+        {lastRefreshed ? `Last refreshed from IAPD: ${formatDate(lastRefreshed)}` : 'Never refreshed from IAPD'}
+      </p>
+      <Button size="sm" variant="outline" onClick={onRefresh} disabled={isRefreshing}>
+        <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+        {isRefreshing ? 'Refreshing…' : 'Refresh from IAPD'}
+      </Button>
+    </div>
+  )
+
   if (isEmpty) {
     return (
-      <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
-        <p className="text-gray-500 font-medium">Business profile data not yet available</p>
-        <p className="text-sm text-gray-400 mt-1">Will populate after next automated IAPD verification.</p>
+      <div>
+        {header}
+        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+          <p className="text-gray-500 font-medium">No business profile data available</p>
+          <p className="text-sm text-gray-400 mt-1">
+            {lastRefreshed
+              ? 'IAPD did not return business profile data for this firm.'
+              : 'Click "Refresh from IAPD" to fetch the latest data.'}
+          </p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div>
+      {header}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div className="bg-white rounded-lg border border-gray-200 p-5">
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Clients Served</h3>
         {profile.client_types.length > 0 ? (
@@ -584,6 +639,7 @@ function BusinessProfileTab({ profile }: { profile: BusinessProfile }) {
           <p className="text-sm text-gray-400">No affiliations on file</p>
         )}
       </div>
+    </div>
     </div>
   )
 }

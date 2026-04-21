@@ -84,6 +84,11 @@ export async function getFirmBusinessProfile(crd: number): Promise<BusinessProfi
   return response.data
 }
 
+export async function refreshFirm(crd: number): Promise<{ changed: boolean; num_changes: number; fields_changed: string[]; last_iapd_refresh_at: string | null }> {
+  const response = await api.post(`/firms/${crd}/refresh`)
+  return response.data
+}
+
 // Platforms
 export async function getPlatforms(): Promise<PlatformOut[]> {
   const response = await api.get('/platforms')
