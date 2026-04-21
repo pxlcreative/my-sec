@@ -159,7 +159,15 @@ def _upsert_aum_history(crd: int, fields: dict, filing_date: date, db: Session) 
 
 
 def _reindex_firm(crd: int, fields: dict, db: Session) -> None:
-    """Push an updated firm document to Elasticsearch. Logs errors, never raises."""
+    """
+    Push an updated firm document to Elasticsearch.
+
+    On direct failure (ES down, network error), enqueue a Celery retry task
+    so the index eventually catches up instead of staying stale forever.
+    The DB commit has already happened by the time this is called — we can't
+    roll back the refresh, so our contract is "don't block the refresh; but
+    don't silently lose the work either".
+    """
     try:
         from services.es_client import bulk_index_firms
         from models.platform import FirmPlatform, PlatformDefinition
@@ -185,4 +193,14 @@ def _reindex_firm(crd: int, fields: dict, db: Session) -> None:
         }
         bulk_index_firms([doc])
     except Exception as exc:
-        log.warning("refresh_firm(%d): ES re-index failed (non-fatal): %s", crd, exc)
+        log.warning(
+            "refresh_firm(%d): ES re-index failed, enqueuing retry: %s", crd, exc,
+        )
+        try:
+            from celery_tasks.refresh_tasks import reindex_firm
+            reindex_firm.apply_async(args=[crd], countdown=60)
+        except Exception as enq_exc:
+            # Broker down — nothing else we can do here beyond logging loudly.
+            log.error(
+                "refresh_firm(%d): could not enqueue reindex retry: %s", crd, enq_exc,
+            )

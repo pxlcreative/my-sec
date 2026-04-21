@@ -3,8 +3,10 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from config import settings
+from db import engine
 from routes import firms, match, sync
 from routes.alerts import router as alerts_router
 from routes.excel import router as excel_router
@@ -74,5 +76,36 @@ app.include_router(questionnaires_router, prefix="/api")
 # ---------------------------------------------------------------------------
 
 @app.get("/health", tags=["meta"])
-def health() -> dict:
-    return {"status": "ok"}
+def health() -> JSONResponse:
+    """
+    Readiness probe.
+
+    Returns 200 if the app can reach Postgres AND the core schema has been
+    migrated. Returns 503 (with details) otherwise so Docker / Kubernetes
+    treat the container as not-ready instead of routing traffic to it.
+    """
+    checks: dict[str, str] = {}
+    status = "ok"
+    http_code = 200
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        checks["db"] = "ok"
+    except Exception as exc:
+        checks["db"] = f"error: {exc.__class__.__name__}"
+        status = "unavailable"
+        http_code = 503
+
+    if checks["db"] == "ok":
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1 FROM firms LIMIT 1"))
+            checks["schema"] = "ok"
+        except Exception:
+            # Table missing = migrations haven't run. Not ready.
+            checks["schema"] = "missing (run `make migrate`)"
+            status = "unavailable"
+            http_code = 503
+
+    return JSONResponse(status_code=http_code, content={"status": status, "checks": checks})

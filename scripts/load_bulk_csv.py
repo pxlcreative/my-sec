@@ -7,6 +7,11 @@ Downloads and loads the three SEC ADV bulk CSV ZIPs into:
   - firm_aum_history   (every filing row as a time-series point)
   - firm_disclosures_summary (DRP counts per CRD)
 
+Idempotency:
+  - Skips files that already have a `complete` sync_manifest row.
+  - On re-run, re-downloads only ZIPs not already on disk.
+  - All DB writes use ON CONFLICT semantics so partial re-runs are safe.
+
 Usage (from project root with DATABASE_URL in .env or environment):
     python scripts/load_bulk_csv.py
 
@@ -29,6 +34,8 @@ import psycopg2
 import psycopg2.extras
 import requests
 from dotenv import load_dotenv
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # ---------------------------------------------------------------------------
 # Bootstrap paths / config
@@ -54,6 +61,39 @@ ZIP_URLS = [
     "https://www.sec.gov/files/adv-filing-data-20111105-20241231-part1.zip",
     "https://www.sec.gov/files/adv-filing-data-20111105-20241231-part2.zip",
 ]
+
+BULK_MANIFEST_FILE_TYPE = "bulk_csv_historical"
+
+# ---------------------------------------------------------------------------
+# HTTP session with retry adapter for SEC downloads
+# ---------------------------------------------------------------------------
+
+def _build_session() -> requests.Session:
+    """
+    Shared requests.Session with exponential backoff on 429/5xx.
+
+    SEC bulk endpoints are intermittently slow or rate-limited; a single
+    transient failure shouldn't kill a 90-minute import. Retry 5 times
+    with backoff 2, 4, 8, 16, 32 seconds.
+    """
+    sess = requests.Session()
+    retry = Retry(
+        total=5,
+        connect=5,
+        read=5,
+        backoff_factor=2,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET", "HEAD"]),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    sess.mount("http://", adapter)
+    sess.mount("https://", adapter)
+    sess.headers.update({"User-Agent": "MySEC/1.0 (self-hosted; research use)"})
+    return sess
+
+
+_http = _build_session()
 
 # ---------------------------------------------------------------------------
 # Column name normalisation
@@ -156,24 +196,71 @@ def _normalize_state(val: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Sync manifest helpers (make bulk imports visible in the Sync dashboard)
+# ---------------------------------------------------------------------------
+
+def _manifest_status(conn, file_name: str) -> str | None:
+    """Return the current status for a manifest row, or None if absent."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT status FROM sync_manifest WHERE file_type = %s AND file_name = %s",
+            (BULK_MANIFEST_FILE_TYPE, file_name),
+        )
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def _upsert_manifest(
+    conn,
+    file_name: str,
+    status: str,
+    *,
+    records: int | None = None,
+    error: str | None = None,
+    year: int = 0,
+) -> None:
+    """Insert or update a row in sync_manifest for this bulk file."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO sync_manifest (
+                file_type, file_name, year, status,
+                processed_at, records_processed, error_message
+            ) VALUES (%s, %s, %s, %s, NOW(), %s, %s)
+            ON CONFLICT (file_type, file_name) DO UPDATE SET
+                status = EXCLUDED.status,
+                processed_at = NOW(),
+                records_processed = COALESCE(EXCLUDED.records_processed,
+                                             sync_manifest.records_processed),
+                error_message = EXCLUDED.error_message
+            """,
+            (BULK_MANIFEST_FILE_TYPE, file_name, year, status, records, error),
+        )
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
 # 1. Download
 # ---------------------------------------------------------------------------
 
 def download_zip(url: str, dest_dir: Path) -> Path:
     """
     Streaming download of url into dest_dir/<filename>.
-    Skips if the file already exists (re-run safe).
+    Skips if the file already exists AND passes ZIP integrity test (re-run safe).
     Returns the local path.
     """
     filename = url.rsplit("/", 1)[-1]
     dest = dest_dir / filename
+
     if dest.exists():
-        log.info("Already downloaded: %s", dest.name)
-        return dest
+        if _verify_zip(dest):
+            log.info("Already downloaded (intact): %s", dest.name)
+            return dest
+        log.warning("Existing %s failed integrity check; re-downloading", dest.name)
+        dest.unlink()
 
     log.info("Downloading %s ...", url)
-    headers = {"User-Agent": "MySEC/1.0 (self-hosted; research use)"}
-    with requests.get(url, stream=True, timeout=120, headers=headers) as r:
+    with _http.get(url, stream=True, timeout=120) as r:
         r.raise_for_status()
         total = int(r.headers.get("content-length", 0))
         downloaded = 0
@@ -186,8 +273,23 @@ def download_zip(url: str, dest_dir: Path) -> Path:
                     log.info("  %.0f%% (%.0f MB)", 100 * downloaded / total,
                              downloaded / (1 << 20))
                     last_logged = downloaded
+
+    if not _verify_zip(dest):
+        # Corrupted download — remove so a re-run will retry.
+        dest.unlink(missing_ok=True)
+        raise RuntimeError(f"Downloaded ZIP failed integrity check: {filename}")
+
     log.info("Saved %s (%.0f MB)", dest.name, dest.stat().st_size / (1 << 20))
     return dest
+
+
+def _verify_zip(path: Path) -> bool:
+    """Return True if the ZIP opens and all entries pass CRC."""
+    try:
+        with zipfile.ZipFile(path) as zf:
+            return zf.testzip() is None
+    except (zipfile.BadZipFile, OSError):
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -195,10 +297,10 @@ def download_zip(url: str, dest_dir: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 def _parse_adv_csv(zf: zipfile.ZipFile, entry_name: str,
-                   default_registration_status: str | None = None) -> list[dict]:
+                   default_registration_status: str | None = None) -> tuple[list[dict], int]:
     """
     Parse one CSV entry from an open ZipFile using the canonical column map.
-    Returns a list of row dicts with canonical keys.
+    Returns (rows, error_count) where rows have canonical keys.
     """
     rows: list[dict] = []
     errors = 0
@@ -244,19 +346,22 @@ def _parse_adv_csv(zf: zipfile.ZipFile, entry_name: str,
                 if errors <= 5:
                     log.warning("Row %d parse error in %s: %s", i, entry_name, exc)
 
+    if errors > 5:
+        log.warning("%s: %d additional parse errors suppressed", entry_name, errors - 5)
+
     return rows, errors
 
 
-def parse_ia_main(zip_path: Path) -> list[dict]:
+def parse_ia_main(zip_path: Path) -> tuple[list[dict], int]:
     """
     Open the ZIP, find the main firm data CSV, normalise columns, and return
-    a list of dicts with canonical keys.
+    (rows, total_parse_errors). Rows have canonical keys.
 
     Supports two formats:
       • Legacy:  IA_MAIN.csv (used in older bulk ZIPs)
       • Current: IA_ADV_Base_A_*.csv (SEC's format since ~2024)
 
-    Rows with no crd_number or filing_date are skipped.
+    Rows with no crd_number or filing_date are skipped silently.
     """
     import re
 
@@ -274,7 +379,7 @@ def parse_ia_main(zip_path: Path) -> list[dict]:
             rows.extend(chunk)
             total_errors += errors
             log.info("Parsed %d rows from IA_MAIN (%d errors)", len(rows), total_errors)
-            return rows
+            return rows, total_errors
 
         # --- Fall back to IA_ADV_Base_A_*.csv (current SEC format) ---
         base_a_files = sorted(
@@ -284,7 +389,7 @@ def parse_ia_main(zip_path: Path) -> list[dict]:
         if not base_a_files:
             log.warning("No recognised firm data CSV (IA_MAIN.CSV or IA_ADV_Base_A*.csv) "
                         "found in %s", zip_path.name)
-            return rows
+            return rows, 0
 
         for entry in base_a_files:
             log.info("Parsing %s from %s ...", entry, zip_path.name)
@@ -293,7 +398,7 @@ def parse_ia_main(zip_path: Path) -> list[dict]:
             total_errors += errors
 
     log.info("Parsed %d rows from IA_ADV_Base_A (%d errors)", len(rows), total_errors)
-    return rows
+    return rows, total_errors
 
 
 # ---------------------------------------------------------------------------
@@ -303,12 +408,11 @@ def parse_ia_main(zip_path: Path) -> list[dict]:
 def upsert_firms(rows: list[dict], conn) -> int:
     """
     Deduplicate to one row per CRD (most recent filing_date), then bulk-upsert
-    into firms. Only overwrites an existing row when the incoming filing_date
-    is newer than the stored last_filing_date.
+    into firms in a single transaction. Rolls back on any error.
+    Only overwrites an existing row when the incoming filing_date is newer.
 
     Returns number of rows passed to execute (not necessarily changed).
     """
-    # Keep only the most-recent row per CRD
     best: dict[int, dict] = {}
     for row in rows:
         crd = row["crd_number"]
@@ -316,6 +420,8 @@ def upsert_firms(rows: list[dict], conn) -> int:
             best[crd] = row
 
     deduplicated = list(best.values())
+    if not deduplicated:
+        return 0
 
     sql = """
         INSERT INTO firms (
@@ -354,9 +460,14 @@ def upsert_firms(rows: list[dict], conn) -> int:
               OR firms.last_filing_date IS NULL
     """
 
-    with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(cur, sql, deduplicated, page_size=500)
-    conn.commit()
+    try:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_batch(cur, sql, deduplicated, page_size=500)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
     log.info("Firms upsert: %d unique CRDs submitted", len(deduplicated))
     return len(deduplicated)
 
@@ -367,10 +478,15 @@ def upsert_firms(rows: list[dict], conn) -> int:
 
 def insert_aum_history(rows: list[dict], conn, source_tag: str) -> int:
     """
-    Insert every row as one AUM time-series point.
+    Insert every row as one AUM time-series point in a single transaction.
     Skips duplicates (crd_number, filing_date, source) silently.
+    Rolls back on any error.
+
     Returns number of rows submitted.
     """
+    if not rows:
+        return 0
+
     sql = """
         INSERT INTO firm_aum_history (
             crd_number, filing_date,
@@ -386,9 +502,14 @@ def insert_aum_history(rows: list[dict], conn, source_tag: str) -> int:
 
     tagged = [{**r, "source": source_tag} for r in rows]
 
-    with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(cur, sql, tagged, page_size=1000)
-    conn.commit()
+    try:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_batch(cur, sql, tagged, page_size=1000)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
     log.info("AUM history: %d rows submitted (dupes skipped)", len(tagged))
     return len(tagged)
 
@@ -520,9 +641,14 @@ def upsert_disclosures_summary(counts: dict[int, dict[str, int]], conn) -> int:
     """
 
     rows = [{"crd_number": crd, **v} for crd, v in counts.items()]
-    with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(cur, sql, rows, page_size=500)
-    conn.commit()
+    try:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_batch(cur, sql, rows, page_size=500)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
     log.info("Disclosures summary: %d CRDs upserted", len(rows))
     return len(rows)
 
@@ -531,42 +657,64 @@ def upsert_disclosures_summary(counts: dict[int, dict[str, int]], conn) -> int:
 # 6. Orchestrator for one ZIP
 # ---------------------------------------------------------------------------
 
-def load_zip(zip_url: str, conn, source_tag: str) -> dict:
-    """Download → parse → upsert. Returns a stats dict."""
-    t0 = time.time()
-    zip_path = download_zip(zip_url, DOWNLOAD_DIR)
+def load_zip(zip_url: str, conn, source_tag: str, *, force: bool = False) -> dict:
+    """
+    Download → parse → upsert for one ZIP. Returns a stats dict.
 
-    ia_rows = parse_ia_main(zip_path)
-    firms_submitted = upsert_firms(ia_rows, conn)
-    aum_submitted = insert_aum_history(ia_rows, conn, source_tag)
+    Writes a sync_manifest row so completed ZIPs are visible in the Sync
+    dashboard. Skips if an existing `complete` row is present, unless force=True.
+    """
+    file_name = zip_url.rsplit("/", 1)[-1]
 
-    drp_counts = parse_drp_counts(zip_path)
-    disclosures_submitted = upsert_disclosures_summary(drp_counts, conn)
+    existing_status = _manifest_status(conn, file_name)
+    if existing_status == "complete" and not force:
+        log.info("Skipping %s (already complete in sync_manifest)", file_name)
+        return {"zip": file_name, "skipped": True}
 
-    elapsed = time.time() - t0
-    stats = {
-        "zip": zip_url.rsplit("/", 1)[-1],
-        "ia_rows_parsed": len(ia_rows),
-        "firms_submitted": firms_submitted,
-        "aum_rows_submitted": aum_submitted,
-        "disclosures_submitted": disclosures_submitted,
-        "elapsed_s": round(elapsed, 1),
-    }
-    log.info("Done %-55s  firms=%d  aum=%d  disclosures=%d  t=%.0fs",
-             stats["zip"], firms_submitted, aum_submitted,
-             disclosures_submitted, elapsed)
-    return stats
+    _upsert_manifest(conn, file_name, "processing")
+
+    try:
+        t0 = time.time()
+        zip_path = download_zip(zip_url, DOWNLOAD_DIR)
+
+        ia_rows, parse_errors = parse_ia_main(zip_path)
+        firms_submitted = upsert_firms(ia_rows, conn)
+        aum_submitted = insert_aum_history(ia_rows, conn, source_tag)
+
+        drp_counts = parse_drp_counts(zip_path)
+        disclosures_submitted = upsert_disclosures_summary(drp_counts, conn)
+
+        elapsed = time.time() - t0
+        stats = {
+            "zip": file_name,
+            "ia_rows_parsed": len(ia_rows),
+            "parse_errors": parse_errors,
+            "firms_submitted": firms_submitted,
+            "aum_rows_submitted": aum_submitted,
+            "disclosures_submitted": disclosures_submitted,
+            "elapsed_s": round(elapsed, 1),
+        }
+        log.info("Done %-55s  firms=%d  aum=%d  disclosures=%d  t=%.0fs",
+                 stats["zip"], firms_submitted, aum_submitted,
+                 disclosures_submitted, elapsed)
+
+        _upsert_manifest(conn, file_name, "complete", records=firms_submitted)
+        return stats
+    except Exception as exc:
+        log.exception("load_zip failed for %s", file_name)
+        _upsert_manifest(conn, file_name, "failed", error=str(exc)[:500])
+        raise
 
 
 # ---------------------------------------------------------------------------
 # 7. main()
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+def main() -> int:
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         log.error("DATABASE_URL is not set. Copy .env.example → .env and fill it in.")
-        sys.exit(1)
+        return 1
 
     # psycopg2 expects postgresql:// not postgresql+psycopg2://
     dsn = database_url.replace("postgresql+psycopg2://", "postgresql://")
@@ -575,26 +723,50 @@ def main() -> None:
     conn = psycopg2.connect(dsn)
 
     t_start = time.time()
-    all_stats = []
+    all_stats: list[dict] = []
+    failures: list[str] = []
 
-    for url in ZIP_URLS:
-        stats = load_zip(url, conn, source_tag="bulk_csv_2011_2024")
-        all_stats.append(stats)
+    try:
+        for url in ZIP_URLS:
+            try:
+                stats = load_zip(url, conn, source_tag="bulk_csv_2011_2024")
+                all_stats.append(stats)
+            except Exception as exc:
+                failures.append(f"{url.rsplit('/', 1)[-1]}: {exc}")
+                # Continue with remaining ZIPs — partial success is useful.
+    finally:
+        conn.close()
 
-    conn.close()
+    processed = [s for s in all_stats if not s.get("skipped")]
+    skipped = [s for s in all_stats if s.get("skipped")]
 
-    total_ia = sum(s["ia_rows_parsed"] for s in all_stats)
-    total_aum = sum(s["aum_rows_submitted"] for s in all_stats)
-    total_firms = sum(s["firms_submitted"] for s in all_stats)
-    total_disc = sum(s["disclosures_submitted"] for s in all_stats)
+    total_ia = sum(s.get("ia_rows_parsed", 0) for s in processed)
+    total_aum = sum(s.get("aum_rows_submitted", 0) for s in processed)
+    total_firms = sum(s.get("firms_submitted", 0) for s in processed)
+    total_disc = sum(s.get("disclosures_submitted", 0) for s in processed)
+    total_errors = sum(s.get("parse_errors", 0) for s in processed)
     total_t = time.time() - t_start
 
-    log.info(
-        "=== ALL DONE ===  ia_rows=%d  firms_submitted=%d  "
-        "aum_rows=%d  disclosures=%d  total_time=%.0fs",
-        total_ia, total_firms, total_aum, total_disc, total_t,
-    )
+    log.info("")
+    log.info("=== SUMMARY ===")
+    log.info("  ZIPs processed:     %d", len(processed))
+    log.info("  ZIPs skipped:       %d (already complete)", len(skipped))
+    log.info("  ZIPs failed:        %d", len(failures))
+    log.info("  Rows parsed:        %d", total_ia)
+    log.info("  Rows with errors:   %d", total_errors)
+    log.info("  Firms submitted:    %d", total_firms)
+    log.info("  AUM rows submitted: %d", total_aum)
+    log.info("  Disclosures:        %d", total_disc)
+    log.info("  Total time:         %.0fs", total_t)
+
+    if failures:
+        log.error("Failed ZIPs:")
+        for f in failures:
+            log.error("  - %s", f)
+        return 2
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

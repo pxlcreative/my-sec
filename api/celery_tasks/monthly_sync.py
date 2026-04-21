@@ -107,20 +107,44 @@ def monthly_data_sync(self, job_id: int | None = None) -> dict:
             _log_event("Phase 2: advBrochures ZIPs skipped — PDFs fetched per-firm via platform brochure sync")
 
             # ----------------------------------------------------------------
-            # Finalize job
+            # Finalize job.
+            # Status is "partial_success" if any file in this run was marked
+            # failed (but at least one completed); otherwise "complete".
             # ----------------------------------------------------------------
+            from sqlalchemy import select, and_
+            failed_in_run = session.scalars(
+                select(SyncManifestEntry.file_name).where(
+                    and_(
+                        SyncManifestEntry.sync_job_id == job_id,
+                        SyncManifestEntry.status == "failed",
+                    )
+                )
+            ).all()
+            final_status = "partial_success" if failed_in_run else "complete"
+
             job = session.get(SyncJob, job_id)
-            job.status = "complete"
+            job.status = final_status
             job.completed_at = datetime.now(timezone.utc)
             job.firms_updated = total_filing_firms
+            if failed_in_run:
+                job.error_message = (
+                    f"{len(failed_in_run)} file(s) failed: " + ", ".join(failed_in_run[:5])
+                )
             session.commit()
 
             result = {
-                "status": "complete",
+                "status": final_status,
                 "filing_firms_updated": total_filing_firms,
+                "failed_files": list(failed_in_run),
             }
-            _log_event(f"Sync complete: {total_filing_firms} firm records updated")
-            log.info("monthly_data_sync complete: %s", result)
+            if failed_in_run:
+                _log_event(
+                    f"Sync finished with {len(failed_in_run)} failed file(s); "
+                    f"{total_filing_firms} firm records updated overall"
+                )
+            else:
+                _log_event(f"Sync complete: {total_filing_firms} firm records updated")
+            log.info("monthly_data_sync %s: %s", final_status, result)
 
             # Auto-trigger per-firm PDF fetch for all platforms with save_brochures=True
             from celery_tasks.brochure_tasks import sync_all_platforms_brochures
@@ -189,7 +213,9 @@ def _process_filing_data(pending, session, job_id: int, _log_event) -> int:
         _log_event(f"Downloading {entry.file_name}…")
         try:
             zip_path = download_zip(url, DOWNLOAD_DIR)
-            rows = parse_ia_main(zip_path)
+            rows, parse_errors = parse_ia_main(zip_path)
+            if parse_errors:
+                _log_event(f"{entry.file_name}: {parse_errors} row parse errors")
             conn = psycopg2.connect(dsn)
             try:
                 n = upsert_firms(rows, conn)
@@ -200,7 +226,7 @@ def _process_filing_data(pending, session, job_id: int, _log_event) -> int:
             _log_event(f"{entry.file_name}: {n} firms upserted from {len(rows)} rows")
             _mark_complete(entry, n, session)
         except Exception as exc:
-            log.error("_process_filing_data: failed %s: %s", entry.file_name, exc)
+            log.exception("_process_filing_data: failed %s", entry.file_name)
             _log_event(f"Failed {entry.file_name}: {exc}")
             _mark_failed(entry, str(exc), session)
 

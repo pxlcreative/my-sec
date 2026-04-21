@@ -6,6 +6,8 @@ Complements load_bulk_csv.py (which covers 2000–2024).
 Downloads and processes all pending advFilingData and advW files from the
 SEC metadata feed. Idempotent — skips files already marked complete in sync_manifest.
 
+State machine: pending → processing → complete | failed
+
 Usage (from project root):
     docker compose exec api python scripts/load_filing_data.py
 """
@@ -40,7 +42,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# Reuse helpers from load_bulk_csv
+# Reuse helpers from load_bulk_csv — including _http (urllib3.Retry adapter).
 from load_bulk_csv import (  # noqa: E402
     download_zip,
     parse_ia_main,
@@ -69,7 +71,9 @@ def parse_advw_csv(zip_path: Path) -> list[dict]:
             text = io.TextIOWrapper(raw, encoding="utf-8-sig", errors="replace", newline="")
             reader = csv.DictReader(text)
             orig = reader.fieldnames or []
-            upper_map = {f.strip().upper(): f for f in orig}
+            # Normalize headers: uppercase, strip, replace spaces with underscore.
+            # SEC advW uses "CRD Number" (space) in some years.
+            upper_map = {f.strip().upper().replace(" ", "_"): f for f in orig}
 
             crd_col = next(
                 (upper_map[k] for k in ("CRD_NUMBER", "FIRM_CRD_NUMBER", "CRD") if k in upper_map),
@@ -95,7 +99,7 @@ def parse_advw_csv(zip_path: Path) -> list[dict]:
 
 
 def apply_withdrawals(withdrawals: list[dict], conn) -> int:
-    """Mark firms as Withdrawn. Returns number of rows processed."""
+    """Mark firms as Withdrawn in a single transaction. Rolls back on error."""
     if not withdrawals:
         return 0
     sql = """
@@ -106,9 +110,13 @@ def apply_withdrawals(withdrawals: list[dict], conn) -> int:
         WHERE crd_number = %(crd)s
           AND (last_filing_date IS NULL OR %(filing_date)s >= last_filing_date)
     """
-    with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(cur, sql, withdrawals, page_size=500)
-    conn.commit()
+    try:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_batch(cur, sql, withdrawals, page_size=500)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     return len(withdrawals)
 
 
@@ -122,6 +130,11 @@ def _get_session():
 
 
 def _get_pending(session, file_type: str) -> list:
+    """Return manifest entries that still need processing.
+
+    Includes both `pending` and `processing` — a `processing` row is left
+    over from a previous crashed run and should be retried.
+    """
     from sqlalchemy import select
     from models.sync_manifest import SyncManifestEntry
     return list(
@@ -129,11 +142,20 @@ def _get_pending(session, file_type: str) -> list:
             select(SyncManifestEntry)
             .where(
                 SyncManifestEntry.file_type == file_type,
-                SyncManifestEntry.status == "pending",
+                SyncManifestEntry.status.in_(("pending", "processing")),
             )
             .order_by(SyncManifestEntry.year, SyncManifestEntry.uploaded_on)
         ).all()
     )
+
+
+def _mark_processing(entry, session) -> None:
+    """Transition pending → processing so concurrent runs don't double-process."""
+    from datetime import datetime, timezone
+    entry.status = "processing"
+    entry.processed_at = datetime.now(timezone.utc)
+    entry.error_message = None
+    session.commit()
 
 
 def _mark_complete(entry, records: int, session) -> None:
@@ -156,11 +178,11 @@ def _mark_failed(entry, error: str, session) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+def main() -> int:
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         log.error("DATABASE_URL is not set. Copy .env.example → .env and fill it in.")
-        sys.exit(1)
+        return 1
 
     dsn = database_url.replace("postgresql+psycopg2://", "postgresql://")
 
@@ -169,22 +191,27 @@ def main() -> None:
     metadata = fetch_metadata()
 
     session = _get_session()
+    total_filing = 0
+    total_advw = 0
+    failures: list[str] = []
+
     try:
         new_entries = refresh_manifest(metadata, session)
         log.info("Manifest refreshed: %d new entries", len(new_entries))
 
-        # ----------------------------------------------------------------
-        # Process advFilingData
-        # ----------------------------------------------------------------
+        # advFilingData
         filing_pending = _get_pending(session, "advFilingData")
         log.info("advFilingData: %d pending file(s)", len(filing_pending))
 
         for entry in filing_pending:
             url = get_file_url(entry.file_type, entry.year, entry.file_name)
             log.info("Processing %s…", entry.file_name)
+            _mark_processing(entry, session)
             try:
                 zip_path = download_zip(url, DOWNLOAD_DIR)
-                rows = parse_ia_main(zip_path)
+                rows, parse_errors = parse_ia_main(zip_path)
+                if parse_errors:
+                    log.warning("  %s: %d row parse errors", entry.file_name, parse_errors)
                 conn = psycopg2.connect(dsn)
                 try:
                     n = upsert_firms(rows, conn)
@@ -193,19 +220,20 @@ def main() -> None:
                     conn.close()
                 log.info("  %s: %d firms upserted from %d rows", entry.file_name, n, len(rows))
                 _mark_complete(entry, n, session)
+                total_filing += n
             except Exception as exc:
-                log.error("  FAILED %s: %s", entry.file_name, exc)
+                log.exception("  FAILED %s", entry.file_name)
                 _mark_failed(entry, str(exc), session)
+                failures.append(f"advFilingData/{entry.file_name}: {exc}")
 
-        # ----------------------------------------------------------------
-        # Process advW
-        # ----------------------------------------------------------------
+        # advW
         advw_pending = _get_pending(session, "advW")
         log.info("advW: %d pending file(s)", len(advw_pending))
 
         for entry in advw_pending:
             url = get_file_url(entry.file_type, entry.year, entry.file_name)
             log.info("Processing %s…", entry.file_name)
+            _mark_processing(entry, session)
             try:
                 zip_path = download_zip(url, DOWNLOAD_DIR)
                 withdrawals = parse_advw_csv(zip_path)
@@ -216,15 +244,26 @@ def main() -> None:
                     conn.close()
                 log.info("  %s: %d withdrawal(s) applied", entry.file_name, n)
                 _mark_complete(entry, n, session)
+                total_advw += n
             except Exception as exc:
-                log.error("  FAILED %s: %s", entry.file_name, exc)
+                log.exception("  FAILED %s", entry.file_name)
                 _mark_failed(entry, str(exc), session)
+                failures.append(f"advW/{entry.file_name}: {exc}")
 
     finally:
         session.close()
 
-    log.info("=== load_filing_data.py complete ===")
+    log.info("")
+    log.info("=== SUMMARY ===")
+    log.info("  Filing records upserted:   %d", total_filing)
+    log.info("  Withdrawals applied:       %d", total_advw)
+    log.info("  Failures:                  %d", len(failures))
+    if failures:
+        for f in failures:
+            log.error("  - %s", f)
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

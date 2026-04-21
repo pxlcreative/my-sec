@@ -9,12 +9,17 @@ from celery_tasks.app import app
 log = logging.getLogger(__name__)
 
 
-@app.task(bind=True, max_retries=0)
+@app.task(
+    bind=True,
+    name="celery_tasks.match_tasks.run_bulk_match",
+    max_retries=2,
+    default_retry_delay=60,
+)
 def run_bulk_match(self, job_id: int, records: list[dict], options: dict) -> None:
     """
     Runs match_batch for an async job, writing status and results back to sync_jobs.
 
-    Arguments are plain JSON-serialisable types (Celery requirement).
+    Retries up to 2 times on transient failures (ES unreachable, broker reconnect).
     """
     from db import SessionLocal
     from models.sync_job import SyncJob
@@ -22,7 +27,6 @@ def run_bulk_match(self, job_id: int, records: list[dict], options: dict) -> Non
 
     db = SessionLocal()
     try:
-        # Mark running
         job: SyncJob | None = db.get(SyncJob, job_id)
         if job is None:
             log.error("run_bulk_match: job %d not found", job_id)
@@ -53,8 +57,15 @@ def run_bulk_match(self, job_id: int, records: list[dict], options: dict) -> Non
         )
 
     except Exception as exc:
-        log.exception("run_bulk_match job=%d failed", job_id)
+        log.exception("run_bulk_match job=%d failed (attempt %d)", job_id, self.request.retries + 1)
+
+        # Retry transient failures. If we've exhausted retries, persist the
+        # failure to the SyncJob so the UI shows a clear error.
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=exc, countdown=60 * (self.request.retries + 1))
+
         try:
+            db.rollback()
             job = db.get(SyncJob, job_id)
             if job:
                 job.status = "failed"

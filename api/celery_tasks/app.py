@@ -7,8 +7,18 @@ if "/project/api" not in sys.path:
     sys.path.insert(0, "/project/api")
 
 from celery import Celery
+from kombu import Queue
 
 from config import settings
+
+# Named queues. Keep this list in sync with the `-Q` flag on the worker
+# command in docker-compose.yml. `dead_letter` holds tasks that exhausted
+# their retries — inspect via `make dlq-inspect`.
+QUEUES = (
+    Queue("celery"),
+    Queue("match"),
+    Queue("dead_letter"),
+)
 
 app = Celery(
     "sec_adv",
@@ -26,12 +36,32 @@ app = Celery(
 )
 
 app.conf.update(
+    # Serialization
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
     timezone="UTC",
     enable_utc=True,
+
+    # Reliability
+    task_acks_late=True,              # ack only after task succeeds (or gives up)
+    task_reject_on_worker_lost=True,  # re-queue if worker crashes mid-task
+    worker_prefetch_multiplier=1,     # don't hoard tasks; fair scheduling
+
+    # Global task time limits. Per-task overrides welcome.
+    task_soft_time_limit=3000,        # 50 min — raises SoftTimeLimitExceeded
+    task_time_limit=3600,             # 60 min — kills the task hard
+
+    # Broker reconnection
+    broker_connection_retry_on_startup=True,
+
+    # Beat scheduler reads schedules from the cron_schedules table
     beat_scheduler="celery_tasks.db_scheduler:DatabaseScheduler",
+    beat_schedule_filename="/tmp/celerybeat-schedule",
+
+    # Queues and routing
+    task_queues=QUEUES,
+    task_default_queue="celery",
     task_routes={
         "celery_tasks.match_tasks.run_bulk_match": {"queue": "match"},
     },

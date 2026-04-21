@@ -287,11 +287,20 @@ def _build_email_body(rule, firm, extra_data: dict) -> tuple[str, str]:
     return subject, "\n".join(lines)
 
 
-def send_alert_email(rule, firm, extra_data: dict, event, db: Session) -> None:
+def send_alert_email(
+    rule, firm, extra_data: dict, event, db: Session,
+    *, retry_on_failure: bool = True,
+) -> None:
+    """
+    Send an alert email via SMTP. On failure mark the event status and, when
+    *retry_on_failure* is True, enqueue a bounded Celery retry so transient
+    SMTP blips don't drop alerts. The retry task calls this function with
+    retry_on_failure=False to avoid recursion.
+    """
     target = rule.delivery_target
     if not target:
         log.warning("send_alert_email: rule %d has no delivery_target", rule.id)
-        event.delivery_status = "failed"
+        event.delivery_status = "failed:no_target"
         return
 
     subject, body = _build_email_body(rule, firm, extra_data)
@@ -317,18 +326,23 @@ def send_alert_email(rule, firm, extra_data: dict, event, db: Session) -> None:
 
     except Exception as exc:
         log.error("send_alert_email: failed for CRD %d — %s", firm.crd_number, exc)
-        event.delivery_status = "failed"
+        event.delivery_status = f"failed:{str(exc)[:80]}"
+        if retry_on_failure and event.id is not None:
+            _enqueue_delivery_retry(event.id)
 
 
 # ---------------------------------------------------------------------------
 # g. Webhook delivery
 # ---------------------------------------------------------------------------
 
-def send_alert_webhook(rule, firm, extra_data: dict, event, db: Session) -> None:
+def send_alert_webhook(
+    rule, firm, extra_data: dict, event, db: Session,
+    *, retry_on_failure: bool = True,
+) -> None:
     target = rule.delivery_target
     if not target:
         log.warning("send_alert_webhook: rule %d has no delivery_target", rule.id)
-        event.delivery_status = "failed"
+        event.delivery_status = "failed:no_target"
         return
 
     payload = {
@@ -360,7 +374,19 @@ def send_alert_webhook(rule, firm, extra_data: dict, event, db: Session) -> None
 
     except Exception as exc:
         log.error("send_alert_webhook: failed POST %s for CRD %d — %s", target, firm.crd_number, exc)
-        event.delivery_status = "failed"
+        event.delivery_status = f"failed:{str(exc)[:80]}"
+        if retry_on_failure and event.id is not None:
+            _enqueue_delivery_retry(event.id)
+
+
+def _enqueue_delivery_retry(event_id: int) -> None:
+    """Enqueue a bounded retry of alert delivery. Broker failures are logged, not raised."""
+    try:
+        from celery_tasks.alert_tasks import retry_alert_delivery
+        retry_alert_delivery.apply_async(args=[event_id], countdown=300)
+    except Exception as exc:
+        log.error("_enqueue_delivery_retry: could not enqueue retry for event %d: %s",
+                  event_id, exc)
 
 
 # ---------------------------------------------------------------------------

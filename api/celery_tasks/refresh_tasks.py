@@ -56,6 +56,64 @@ def refresh_firm_task(self, crd_number: int) -> dict:
             raise self.retry(exc=exc, countdown=30 * (self.request.retries + 1))
 
 
+@app.task(
+    bind=True,
+    name="refresh_tasks.reindex_firm",
+    max_retries=3,
+    default_retry_delay=60,
+)
+def reindex_firm(self, crd_number: int) -> dict:
+    """
+    Re-index a single firm to Elasticsearch.
+
+    Enqueued by firm_refresh_service._reindex_firm when a direct re-index
+    fails (e.g. ES temporarily unavailable). Retries 3 times with 60s,
+    120s, 180s backoff. On final failure the task raises so it lands in
+    the dead_letter queue rather than being silently dropped.
+    """
+    from db import SessionLocal
+    from models.firm import Firm
+    from models.platform import FirmPlatform, PlatformDefinition
+    from services.es_client import bulk_index_firms
+    from sqlalchemy import select
+
+    with SessionLocal() as session:
+        firm: Firm | None = session.get(Firm, crd_number)
+        if firm is None:
+            log.warning("reindex_firm(%d): firm not found, skipping", crd_number)
+            return {"crd_number": crd_number, "indexed": False, "reason": "not_found"}
+
+        plat_names = [
+            row[0] for row in session.execute(
+                select(PlatformDefinition.name)
+                .join(FirmPlatform, FirmPlatform.platform_id == PlatformDefinition.id)
+                .where(FirmPlatform.crd_number == crd_number)
+            ).all()
+        ]
+        doc = {
+            "crd_number":          firm.crd_number,
+            "legal_name":          firm.legal_name or "",
+            "business_name":       firm.business_name,
+            "main_street1":        firm.main_street1,
+            "main_city":           firm.main_city,
+            "main_state":          firm.main_state,
+            "main_zip":            firm.main_zip,
+            "registration_status": firm.registration_status,
+            "platforms":           plat_names,
+        }
+
+    try:
+        indexed = bulk_index_firms([doc])
+        log.info("reindex_firm(%d): indexed=%d", crd_number, indexed)
+        return {"crd_number": crd_number, "indexed": bool(indexed)}
+    except Exception as exc:
+        log.warning(
+            "reindex_firm(%d) failed (attempt %d): %s",
+            crd_number, self.request.retries + 1, exc,
+        )
+        raise self.retry(exc=exc, countdown=60 * (self.request.retries + 1))
+
+
 @app.task(name="refresh_tasks.batch_verify_registration_status")
 def batch_verify_registration_status(refresh_cooldown_days: int = 30) -> dict:
     """
@@ -87,10 +145,24 @@ def batch_verify_registration_status(refresh_cooldown_days: int = 30) -> dict:
         )
         crds = [row[0] for row in session.execute(stmt)]
 
-    for crd in crds:
-        refresh_firm_task.delay(crd)
+    # Stagger dispatch so we don't flood the broker with 50k+ tasks at once.
+    # refresh_firm_task is rate-limited to 10/m per worker, so a burst of
+    # 50k would sit in the queue for days. Spread dispatch across an hour
+    # (BATCH_SIZE per 60 seconds) so earliest batches start running while
+    # later ones are still being enqueued.
+    BATCH_SIZE = 100
+    BATCH_INTERVAL_SECONDS = 60
 
-    log.info("batch_verify_registration_status: enqueued %d firms", len(crds))
-    return {"enqueued": len(crds)}
+    for i, crd in enumerate(crds):
+        countdown = (i // BATCH_SIZE) * BATCH_INTERVAL_SECONDS
+        refresh_firm_task.apply_async(args=[crd], countdown=countdown)
+
+    log.info(
+        "batch_verify_registration_status: enqueued %d firms across %d batches of %d",
+        len(crds),
+        (len(crds) + BATCH_SIZE - 1) // BATCH_SIZE,
+        BATCH_SIZE,
+    )
+    return {"enqueued": len(crds), "batch_size": BATCH_SIZE}
 
 
