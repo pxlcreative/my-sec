@@ -32,4 +32,7 @@ app.conf.update(
     timezone="UTC",
     enable_utc=True,
     beat_scheduler="celery_tasks.db_scheduler:DatabaseScheduler",
+    task_routes={
+        "celery_tasks.match_tasks.run_bulk_match": {"queue": "match"},
+    },
 )
