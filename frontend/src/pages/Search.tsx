@@ -518,14 +518,14 @@ export default function Search() {
                 <div className="flex items-center gap-2">
                   <button
                     disabled={page <= 1}
-                    onClick={() => setParam('page', String(page - 1))}
+                    onClick={() => setSearchParams((prev) => { const n = new URLSearchParams(prev); n.set('page', String(page - 1)); return n })}
                     className="p-1.5 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
                   <button
                     disabled={page >= totalPages}
-                    onClick={() => setParam('page', String(page + 1))}
+                    onClick={() => setSearchParams((prev) => { const n = new URLSearchParams(prev); n.set('page', String(page + 1)); return n })}
                     className="p-1.5 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
                   >
                     <ChevronRight className="w-4 h-4" />
