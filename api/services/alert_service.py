@@ -196,16 +196,29 @@ def fire_alert(
         platform_name = row
 
     now = datetime.now(timezone.utc)
+
+    if rule.rule_type == "aum_decline_pct":
+        ev_field = "aum_total"
+        ev_old   = str(extra_data["prior_aum"]) if "prior_aum" in extra_data else None
+        ev_new   = str(extra_data["current_aum"]) if "current_aum" in extra_data else None
+    elif rule.rule_type == "deregistration":
+        ev_field = "registration_status"
+        ev_old   = "Registered"
+        ev_new   = "Withdrawn"
+    else:
+        # field_change: caller passes {"old_value": ..., "new_value": ...}
+        ev_field = rule.field_path
+        ev_old   = extra_data.get("old_value")
+        ev_new   = extra_data.get("new_value")
+
     event = AlertEvent(
         rule_id=rule.id,
         crd_number=firm.crd_number,
         firm_name=firm.legal_name,
         rule_type=rule.rule_type,
-        field_path=rule.field_path or (
-            "registration_status" if rule.rule_type == "deregistration" else "aum_total"
-        ),
-        old_value=str(extra_data.get("prior_aum")) if "prior_aum" in extra_data else None,
-        new_value=str(extra_data.get("current_aum", getattr(firm, "aum_total", None))),
+        field_path=ev_field,
+        old_value=ev_old,
+        new_value=ev_new,
         platform_name=platform_name,
         fired_at=now,
         delivery_status="pending",

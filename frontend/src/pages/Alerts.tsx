@@ -57,6 +57,64 @@ const TYPE_COLORS: Record<string, string> = {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function formatAum(n: number): string {
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`
+  return `$${n.toLocaleString()}`
+}
+
+function EventChange({ event }: { event: AlertEventOut }) {
+  if (event.rule_type === 'aum_decline_pct') {
+    const prior = Number(event.old_value)
+    const current = Number(event.new_value)
+    if (!isNaN(prior) && !isNaN(current) && prior !== 0) {
+      const pct = (current - prior) / prior * 100
+      const down = pct < 0
+      return (
+        <span className="text-xs flex items-center gap-1 flex-wrap">
+          <span className="text-gray-500">{formatAum(prior)}</span>
+          <span className="text-gray-400">→</span>
+          <span className={down ? 'text-red-600' : 'text-green-600'}>{formatAum(current)}</span>
+          <span className={`font-medium ${down ? 'text-red-600' : 'text-green-600'}`}>
+            ({down ? '' : '+'}{pct.toFixed(1)}%)
+          </span>
+        </span>
+      )
+    }
+    return <span className="text-gray-400 text-xs">—</span>
+  }
+
+  if (event.rule_type === 'deregistration') {
+    return (
+      <span className="text-xs">
+        <span className="text-gray-500">{event.old_value ?? 'Registered'}</span>
+        <span className="text-gray-400 mx-1">→</span>
+        <span className="text-red-600 font-medium">{event.new_value ?? 'Withdrawn'}</span>
+      </span>
+    )
+  }
+
+  if (event.old_value != null || event.new_value != null) {
+    return (
+      <span className="text-xs">
+        {event.field_path && (
+          <span className="text-gray-400 font-mono mr-1">{event.field_path}:</span>
+        )}
+        <span className="text-gray-500">{event.old_value ?? '—'}</span>
+        <span className="text-gray-400 mx-1">→</span>
+        <span className="text-green-700">{event.new_value ?? '—'}</span>
+      </span>
+    )
+  }
+
+  return <span className="text-gray-400 text-xs">—</span>
+}
+
+// ---------------------------------------------------------------------------
 // Shared badges
 // ---------------------------------------------------------------------------
 
@@ -876,13 +934,7 @@ function EventsTab({ rules }: { rules: AlertRuleOut[] }) {
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            {event.old_value || event.new_value ? (
-                              <span className="text-xs">
-                                <span className="text-red-500">{event.old_value ?? '—'}</span>
-                                <span className="text-gray-400 mx-1">→</span>
-                                <span className="text-green-600">{event.new_value ?? '—'}</span>
-                              </span>
-                            ) : <span className="text-gray-400">—</span>}
+                            <EventChange event={event} />
                           </td>
                           <td className="px-4 py-3 text-gray-500 text-xs">{event.platform_name ?? '—'}</td>
                           <td className="px-4 py-3"><EventStatusBadge status={event.delivery_status} /></td>
