@@ -14,6 +14,29 @@ interface ParsedRow {
   [key: string]: string
 }
 
+function parseAddress(address: string): { city?: string; state?: string; zip?: string } {
+  let s = address.trim()
+  const result: { city?: string; state?: string; zip?: string } = {}
+
+  const zipMatch = s.match(/\b(\d{5})(?:-\d{4})?\s*$/)
+  if (zipMatch) {
+    result.zip = zipMatch[1]
+    s = s.slice(0, zipMatch.index).trim().replace(/,\s*$/, '').trim()
+  }
+
+  const stateMatch = s.match(/,?\s*([A-Za-z]{2})\s*$/)
+  if (stateMatch) {
+    result.state = stateMatch[1].toUpperCase()
+    s = s.slice(0, stateMatch.index).trim().replace(/,\s*$/, '').trim()
+  }
+
+  const parts = s.split(',')
+  const city = parts[parts.length - 1].trim()
+  if (city) result.city = city
+
+  return result
+}
+
 function parseCSV(text: string): { headers: string[]; rows: ParsedRow[] } {
   const lines = text.split('\n').filter((l) => l.trim().length > 0)
   if (lines.length === 0) return { headers: [], rows: [] }
@@ -76,6 +99,7 @@ export default function BulkMatch() {
 
   // Column mapping
   const [nameCol, setNameCol] = useState('')
+  const [addressCol, setAddressCol] = useState('')
   const [cityCol, setCityCol] = useState('')
   const [stateCol, setStateCol] = useState('')
   const [zipCol, setZipCol] = useState('')
@@ -139,14 +163,20 @@ export default function BulkMatch() {
       setAllRows(rows)
       // Auto-detect columns
       const nameCandidates = ['name', 'firm_name', 'company', 'legal_name', 'adviser']
+      const addressCandidates = ['address', 'full_address', 'mailing_address', 'addr', 'location']
       const cityCandidates = ['city', 'main_city', 'town']
       const stateCandidates = ['state', 'main_state', 'st']
       const zipCandidates = ['zip', 'zipcode', 'zip_code', 'postal']
       const lowerH = h.map((x) => x.toLowerCase())
       setNameCol(h[lowerH.findIndex((x) => nameCandidates.includes(x))] ?? h[0] ?? '')
-      setCityCol(h[lowerH.findIndex((x) => cityCandidates.includes(x))] ?? '')
-      setStateCol(h[lowerH.findIndex((x) => stateCandidates.includes(x))] ?? '')
-      setZipCol(h[lowerH.findIndex((x) => zipCandidates.includes(x))] ?? '')
+      const detectedAddress = h[lowerH.findIndex((x) => addressCandidates.includes(x))] ?? ''
+      const detectedCity = h[lowerH.findIndex((x) => cityCandidates.includes(x))] ?? ''
+      const detectedState = h[lowerH.findIndex((x) => stateCandidates.includes(x))] ?? ''
+      const detectedZip = h[lowerH.findIndex((x) => zipCandidates.includes(x))] ?? ''
+      setAddressCol(detectedAddress)
+      setCityCol(detectedCity)
+      setStateCol(detectedState)
+      setZipCol(detectedZip)
     }
     reader.readAsText(file)
   }, [])
@@ -161,13 +191,16 @@ export default function BulkMatch() {
     mutationFn: () => {
       const firms = allRows
         .filter((row) => nameCol && row[nameCol])
-        .map((row) => ({
-          id: row[nameCol],
-          name: row[nameCol] ?? '',
-          city: cityCol ? row[cityCol] : null,
-          state: stateCol ? row[stateCol] : null,
-          zip: zipCol ? row[zipCol] : null,
-        }))
+        .map((row) => {
+          const parsed = addressCol && row[addressCol] ? parseAddress(row[addressCol]) : {}
+          return {
+            id: row[nameCol],
+            name: row[nameCol] ?? '',
+            city: cityCol ? row[cityCol] : (parsed.city ?? null),
+            state: stateCol ? row[stateCol] : (parsed.state ?? null),
+            zip: zipCol ? row[zipCol] : (parsed.zip ?? null),
+          }
+        })
       return bulkMatch({
         firms,
         min_score: minScore,
@@ -283,9 +316,10 @@ export default function BulkMatch() {
             {headers.length > 0 && (
               <div className="space-y-4">
                 <h3 className="text-sm font-semibold text-gray-700">Column Mapping</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                   {[
                     { label: 'Name column', value: nameCol, set: setNameCol, required: true },
+                    { label: 'Address (combined)', value: addressCol, set: setAddressCol, required: false },
                     { label: 'City column', value: cityCol, set: setCityCol, required: false },
                     { label: 'State column', value: stateCol, set: setStateCol, required: false },
                     { label: 'ZIP column', value: zipCol, set: setZipCol, required: false },
@@ -307,6 +341,12 @@ export default function BulkMatch() {
                     </div>
                   ))}
                 </div>
+
+                {addressCol && (
+                  <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-3 py-2">
+                    Address column <strong>{addressCol}</strong> will be parsed automatically into city, state, and ZIP. Individual city/state/ZIP columns take priority if also set.
+                  </p>
+                )}
 
                 <div>
                   <h3 className="text-sm font-semibold text-gray-700 mb-2">
