@@ -202,9 +202,8 @@ export default function BulkMatch() {
           }
         })
       return bulkMatch({
-        firms,
-        min_score: minScore,
-        max_candidates: maxCandidates,
+        records: firms,
+        options: { min_score: minScore, max_candidates: maxCandidates },
       })
     },
     onSuccess: (data) => {
