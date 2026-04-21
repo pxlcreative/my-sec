@@ -352,6 +352,20 @@ def get_firm_business_profile(crd: int, db: Session = Depends(get_db)):
     raw = firm.raw_adv
     if not raw:
         return BusinessProfileOut(
+            available=False,
+            client_types=[],
+            compensation_types=[],
+            investment_strategies=[],
+            affiliations=[],
+        )
+
+    # Business profile requires FormInfo.Part1A from the old IAPD XML format.
+    # The current public IAPD API (api.adviserinfo.sec.gov) returns summary data only
+    # and does not include FormInfo.Part1A. If raw_adv lacks FormInfo entirely,
+    # the data is unavailable regardless of what other keys are present.
+    if "FormInfo" not in raw:
+        return BusinessProfileOut(
+            available=False,
             client_types=[],
             compensation_types=[],
             investment_strategies=[],

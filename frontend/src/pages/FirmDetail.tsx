@@ -566,6 +566,22 @@ function BusinessProfileTab({
     </div>
   )
 
+  if (!profile.available) {
+    return (
+      <div>
+        {header}
+        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+          <p className="text-gray-500 font-medium">Business profile data is not available</p>
+          <p className="text-sm text-gray-400 mt-1 max-w-md mx-auto">
+            The public IAPD API does not expose Form ADV Part 1A checkbox data (client types,
+            compensation arrangements, strategies). This information is only available in the
+            PDF version of Form ADV.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   if (isEmpty) {
     return (
       <div>
@@ -573,9 +589,7 @@ function BusinessProfileTab({
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
           <p className="text-gray-500 font-medium">No business profile data available</p>
           <p className="text-sm text-gray-400 mt-1">
-            {lastRefreshed
-              ? 'IAPD did not return business profile data for this firm.'
-              : 'Click "Refresh from IAPD" to fetch the latest data.'}
+            IAPD did not return business profile data for this firm.
           </p>
         </div>
       </div>

@@ -44,6 +44,7 @@ export interface DisclosuresSummary {
 }
 
 export interface BusinessProfile {
+  available: boolean
   client_types: string[]
   compensation_types: string[]
   investment_strategies: string[]

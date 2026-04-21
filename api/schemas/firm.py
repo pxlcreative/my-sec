@@ -123,6 +123,7 @@ class DisclosuresSummaryOut(BaseModel):
 
 
 class BusinessProfileOut(BaseModel):
+    available: bool = True
     client_types: list[str]
     compensation_types: list[str]
     investment_strategies: list[str]

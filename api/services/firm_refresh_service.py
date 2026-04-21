@@ -77,6 +77,14 @@ def refresh_firm(crd: int, db: Session) -> list[dict]:
                 k: v for k, v in new_fields.items()
                 if k != "crd_number" and hasattr(firm, k)
             }
+            # last_filing_date is stored as ISO string in new_fields for JSON
+            # serialisability; convert back to date for the ORM Date column.
+            if "last_filing_date" in updateable and isinstance(updateable["last_filing_date"], str):
+                from datetime import date as _date
+                try:
+                    updateable["last_filing_date"] = _date.fromisoformat(updateable["last_filing_date"])
+                except ValueError:
+                    del updateable["last_filing_date"]
             for attr, val in updateable.items():
                 setattr(firm, attr, val)
             firm.raw_adv = raw
