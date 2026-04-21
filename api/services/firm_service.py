@@ -134,7 +134,7 @@ def list_firms(
     total: int = session.scalar(count_stmt) or 0
 
     sort_col = _SORT_COLUMNS.get(sort_by or "", Firm.aum_total)
-    order_expr = sort_col.asc() if sort_dir == "asc" else desc(sort_col)
+    order_expr = sort_col.asc().nulls_last() if sort_dir == "asc" else desc(sort_col).nulls_last()
 
     offset = (page - 1) * page_size
     firms = session.scalars(
