@@ -10,3 +10,4 @@ data/exports/
 celerybeat-schedule
 celerybeat.pid
 node_modules/
+frontend/dist/
