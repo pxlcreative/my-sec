@@ -197,7 +197,10 @@ class TestMockSecRequests:
             "https://reports.adviserinfo.sec.gov/reports/foia/reports_metadata.json"
         )
         assert r.status_code == 200
-        assert "reports" in r.json()
+        body = r.json()
+        # Real SEC structure: top-level keys are file types, each with year → files.
+        assert "advFilingData" in body
+        assert "advW" in body
 
     def test_serves_advfilingdata_zip(self, tmp_path, mock_sec_requests):
         r = requests.get(

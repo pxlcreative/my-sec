@@ -134,7 +134,10 @@ def batch_verify_registration_status(refresh_cooldown_days: int = 30) -> dict:
     from models.firm import Firm
 
     monthly_data_start = datetime.date(2025, 1, 1)
-    refresh_cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=refresh_cooldown_days)
+    refresh_cutoff = (
+        datetime.datetime.now(datetime.timezone.utc)
+        - datetime.timedelta(days=refresh_cooldown_days)
+    ).replace(tzinfo=None)  # column is TIMESTAMP WITHOUT TIME ZONE
 
     with SessionLocal() as session:
         stmt = (

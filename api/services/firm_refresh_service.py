@@ -40,12 +40,22 @@ def refresh_firm(crd: int, db: Session) -> list[dict]:
     new_fields = extract_firm_fields(raw)
 
     # If IAPD returned an EDGAR-format document (no RegistrationStatus),
-    # derive Inactive for firms whose last filing is more than 3 years old
+    # derive Inactive for firms whose last filing is more than 1 year old.
     if "registration_status" not in new_fields:
         firm_for_date: Firm | None = db.get(Firm, crd)
-        filing_date = new_fields.get("last_filing_date") or (
-            firm_for_date.last_filing_date if firm_for_date else None
-        )
+        # extract_firm_fields stores last_filing_date as an ISO string for
+        # JSON-serialisability; fall back to the firm's Date column otherwise.
+        raw = new_fields.get("last_filing_date")
+        if isinstance(raw, str):
+            try:
+                filing_date: date | None = date.fromisoformat(raw)
+            except ValueError:
+                filing_date = None
+        else:
+            filing_date = raw
+        if filing_date is None and firm_for_date is not None:
+            filing_date = firm_for_date.last_filing_date
+
         if filing_date and filing_date < date.today() - timedelta(days=365):
             new_fields["registration_status"] = "Inactive"
 

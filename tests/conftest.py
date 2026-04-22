@@ -74,13 +74,14 @@ if str(_API_DIR) not in sys.path:
     sys.path.insert(0, str(_API_DIR))
 
 # Register every model so Base.metadata.create_all knows the full schema.
-from sqlalchemy import create_engine, text  # noqa: E402
-from sqlalchemy.orm import sessionmaker      # noqa: E402
-from fastapi.testclient import TestClient    # noqa: E402
+from sqlalchemy import create_engine, event, text  # noqa: E402
+from sqlalchemy.orm import sessionmaker              # noqa: E402
+from fastapi.testclient import TestClient            # noqa: E402
 
-from db import get_db                        # noqa: E402
-from main import app                         # noqa: E402
-from models.base import Base                 # noqa: E402
+import db as _api_db                                 # noqa: E402
+from db import get_db                                # noqa: E402
+from main import app                                 # noqa: E402
+from models.base import Base                         # noqa: E402
 from models import (                         # noqa: E402,F401
     firm as _firm_models,
     aum,
@@ -157,16 +158,58 @@ def create_tables():
 
 @pytest.fixture()
 def db():
-    """Yield a DB session that is rolled back after each test."""
+    """
+    Yield a DB session that is rolled back after each test.
+
+    Uses the "joining session with SAVEPOINT" pattern so routes that open
+    their own SessionLocal() — e.g. auth_service opening a fresh session
+    to verify an API key — share the same connection and can see the test
+    session's uncommitted data.
+
+    Why this is necessary: tests set up data with db.add + db.flush (never
+    commit, so teardown can roll it back). Routes that call SessionLocal()
+    directly would otherwise create a session on a different connection and
+    see an empty DB, yielding spurious 401 / 404 responses.
+    """
     connection = _engine.connect()
     transaction = connection.begin()
-    session = _TestingSession(bind=connection)
+
+    # Repoint the app's SessionLocal at this connection for the test.
+    _saved_bind = _api_db.SessionLocal.kw["bind"]
+    _api_db.SessionLocal.configure(bind=connection)
+
+    session = _api_db.SessionLocal()
+    session.begin_nested()
+
+    # Flag used by the listener to stop restarting savepoints once we start
+    # tearing the test down; otherwise a restart attempt inside session.close()
+    # raises "Can't operate on closed transaction".
+    session.info["_tearing_down"] = False
+
+    @event.listens_for(session, "after_transaction_end")
+    def _restart_savepoint(sess, trans):  # noqa: ARG001
+        # When an inner SAVEPOINT is released (e.g. via session.commit()
+        # inside a route), reopen one so the next write is still nested.
+        # Route-level sessions share our connection, so their commits also
+        # fire this listener — in that case the session may be in a state
+        # where begin_nested() is invalid; swallow those quietly.
+        if sess.info.get("_tearing_down"):
+            return
+        if not (trans.nested and not trans._parent.nested):
+            return
+        try:
+            sess.begin_nested()
+        except Exception:
+            pass
+
     try:
         yield session
     finally:
+        session.info["_tearing_down"] = True
         session.close()
         transaction.rollback()
         connection.close()
+        _api_db.SessionLocal.configure(bind=_saved_bind)
 
 
 @pytest.fixture()

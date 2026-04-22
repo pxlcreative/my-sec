@@ -181,13 +181,19 @@ def make_api_key_dep():
         db = SessionLocal()
         try:
             api_key = verify_api_key(raw_key, db)
+            # Read fields we'll need after close while the session is still open —
+            # otherwise SQLAlchemy raises DetachedInstanceError on the first
+            # lazy-loaded attribute access.
+            key_hash = api_key.key_hash if api_key else None
+            if api_key is not None:
+                db.expunge(api_key)
         finally:
             db.close()
 
         if api_key is None:
             raise HTTPException(status_code=401, detail="Invalid or inactive API key.")
 
-        check_rate_limit(api_key.key_hash)
+        check_rate_limit(key_hash)
         return api_key
 
     return _dep
