@@ -5,10 +5,23 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # Weekly SEC schema-drift probe. Mondays 14:00 UTC (09:00 ET) —
+    # after SEC's overnight feed refresh, before the US workday.
+    - cron: "0 14 * * 1"
+
+# Coverage thresholds (Phase 3). coverage-check fails if any bucket drops
+# below its floor. Raise these over time; never lower without discussion.
+env:
+  COV_SERVICES_MIN: "80"
+  COV_CELERY_MIN: "80"
+  COV_ROUTES_MIN: "70"
+  COV_SCRIPTS_MIN: "60"
 
 jobs:
   backend:
     name: Backend — lint + type + pytest
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -103,7 +116,7 @@ jobs:
       - name: Run pytest with coverage
         run: |
           pytest tests/ -v \
-            --cov=api \
+            --cov=api --cov=scripts \
             --cov-report=xml \
             --cov-report=term \
             --maxfail=10
@@ -118,6 +131,7 @@ jobs:
 
   frontend:
     name: Frontend — lint + test + build
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -142,9 +156,7 @@ jobs:
         # Allow failure while the lint baseline is still being stabilized.
         run: npm run lint || true
 
-      - name: Test (Vitest) — added in Phase 3
-        # Vitest isn't configured yet; step stays in so adding the config
-        # in Phase 3 doesn't also require a CI change.
+      - name: Test (Vitest)
         run: |
           if [ -f vitest.config.ts ] || [ -f vitest.config.js ]; then
             npm test
@@ -154,3 +166,118 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  coverage-check:
+    name: Coverage thresholds
+    if: github.event_name != 'schedule'
+    needs: backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-xml
+
+      - name: Enforce per-bucket thresholds
+        run: python scripts/check_coverage.py coverage.xml
+        env:
+          COV_SERVICES_MIN: ${{ env.COV_SERVICES_MIN }}
+          COV_CELERY_MIN: ${{ env.COV_CELERY_MIN }}
+          COV_ROUTES_MIN: ${{ env.COV_ROUTES_MIN }}
+          COV_SCRIPTS_MIN: ${{ env.COV_SCRIPTS_MIN }}
+
+  smoke-install:
+    name: Fresh-clone install smoke
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bootstrap .env from .env.example
+        run: |
+          cp .env.example .env
+          # SECRET_KEY guard in Makefile warns but doesn't block; set a real
+          # one so the warning doesn't clutter logs.
+          sed -i 's/^SECRET_KEY=.*/SECRET_KEY=ci-smoke-secret-key-not-for-production/' .env
+
+      - name: make install (up + wait for health)
+        run: make install
+
+      - name: make verify (five-check readiness table)
+        run: make verify
+
+      - name: make test (full pytest suite inside containers)
+        run: make test
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 400
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  sec-schema-drift:
+    name: SEC bulk CSV schema drift (weekly)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: secadv
+          POSTGRES_PASSWORD: secadv
+          POSTGRES_DB: secadv
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U secadv"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://secadv:secadv@localhost:5432/secadv
+      SECRET_KEY: ci-schema-drift-not-for-production
+      PYTHONPATH: ${{ github.workspace }}/api
+      # Narrow probe window so the job stays well under 30 minutes and
+      # we don't hammer the SEC endpoints with a full historical pull.
+      SCHEMA_DRIFT_PROBE: "1"
+      SCHEMA_DRIFT_MONTHS: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run Alembic migrations
+        run: alembic upgrade head
+
+      - name: Probe SEC endpoints (narrow window)
+        run: python scripts/probe_sec_schema.py --months "$SCHEMA_DRIFT_MONTHS"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::SEC schema drift probe failed — column names or URL patterns may have changed."
+          echo "Inspect the logs above and update scripts/load_filing_data.py / load_bulk_csv.py accordingly."

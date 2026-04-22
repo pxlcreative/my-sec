@@ -19,6 +19,8 @@ A private, self-hosted database of ~37,000 SEC-registered investment adviser fir
 9. [Environment Variables Reference](#9-environment-variables-reference)
 10. [Common Issues](#10-common-issues)
 11. [Make Targets Reference](#11-make-targets-reference)
+12. [CI/CD](#12-cicd)
+13. [Upgrading an Existing Install](#13-upgrading-an-existing-install)
 
 ---
 
@@ -46,49 +48,43 @@ node --version            # v20.x or higher
 
 ## 2. First-Time Setup
 
+Three steps. `make install` handles migrations, platform/schedule/questionnaire seeding, and Elasticsearch index creation automatically — no `make migrate` / `make seed` chaining required.
+
 ### 2a. Clone and configure environment
 
 ```bash
 git clone <your-repo-url> mysec
 cd mysec
-
-# Copy the example env file and fill in any local overrides
 cp .env.example .env
 ```
 
-The defaults in `.env.example` work out of the box for local development — you only need to edit `.env` if you're changing ports or adding SMTP credentials for email alerts. See [Section 9](#9-environment-variables-reference) for the full variable list.
+The defaults in `.env.example` work out of the box for local development. Only edit `.env` if you're changing ports or adding SMTP credentials. **Generate a real `SECRET_KEY`** — `make install` will warn if the placeholder is still there:
+
+```bash
+openssl rand -hex 32          # paste into .env as SECRET_KEY=...
+```
+
+See [Section 9](#9-environment-variables-reference) for the full variable list.
 
 ### 2b. Start all services
 
 ```bash
-make up
+make install
 ```
 
-This starts PostgreSQL, Elasticsearch, Redis, the FastAPI backend, and both Celery services (worker + beat scheduler). First run will pull Docker images — allow 2–3 minutes.
+This brings up PostgreSQL, Elasticsearch, Redis, the FastAPI backend, and both Celery services (worker + beat), then blocks until `/health` returns 200 — i.e. until the entrypoint has finished migrations, seeds, and ES index creation. First run will pull Docker images (2–3 minutes) and wait 30–60s for Elasticsearch to go green.
 
-Wait until you see `api_1 | INFO: Application startup complete` in the logs:
+Under the hood: all three services (`api`, `celery_worker`, `celery_beat`) share `api/entrypoint.sh`. Whichever container starts first acquires a Postgres advisory lock and runs `alembic upgrade head` + all `seed_*` scripts + `es_client.create_index_if_not_exists("firms")`. The other two wait, then each hands off to its command (uvicorn, celery worker, celery beat). Re-running `make install` on an existing install is a safe no-op.
+
+Confirm it's green:
 
 ```bash
-docker compose logs -f api
+make verify
 ```
 
-### 2c. Run database migrations
+Five-check readiness table — API health, Postgres, Elasticsearch, Redis, Celery worker.
 
-```bash
-make migrate
-```
-
-This runs `alembic upgrade head` inside the API container, creating all tables and indexes.
-
-### 2d. Seed platform definitions
-
-```bash
-make seed
-```
-
-This inserts the default platforms (Orion, Envestnet, Schwab, Fidelity, Pershing) and seeds the default Celery Beat schedules into the database. Safe to re-run — it skips existing records.
-
-### 2e. Start the frontend
+### 2c. Start the frontend
 
 ```bash
 cd frontend
@@ -189,7 +185,14 @@ PDFs are stored in `./data/brochures/`. Budget ~5–10 GB/year for storage.
 ### Step 6 — Verify data loaded correctly
 
 ```bash
-# Check sync job status
+# Five-check readiness table (API, Postgres, ES, Redis, Celery)
+make verify
+
+# Inspect the sync manifest — every file from reports_metadata.json plus the bulk
+# CSV and ES-reindex runs get a row here. Status: pending | processing | complete | failed.
+curl http://localhost:8000/api/sync/manifest | jq '.[] | {file_type, file_name, status, completed_at}'
+
+# Check sync job history
 curl http://localhost:8000/api/sync/status
 
 # Search for a known firm by name
@@ -198,6 +201,8 @@ curl "http://localhost:8000/api/firms?q=vanguard"
 # Check Elasticsearch index count
 curl http://localhost:9200/firms/_count
 ```
+
+The Sync dashboard in the frontend renders the same manifest view — useful for spotting `failed` rows without shelling out.
 
 ### Monthly sync (ongoing)
 
@@ -285,11 +290,13 @@ curl -H "Authorization: Bearer <your-key>" http://localhost:8000/api/external/fi
 
 ## 7. Running Tests
 
+### Backend (pytest)
+
 ```bash
 make test
 ```
 
-Or run specific test files:
+Or run specific files:
 
 ```bash
 docker compose exec api pytest tests/test_firms_api.py -v
@@ -297,7 +304,34 @@ docker compose exec api pytest tests/test_matcher.py -v
 docker compose exec api pytest tests/test_excel_generator.py -v
 ```
 
-Tests use a separate `test_` database that is created and torn down automatically. No production data is touched.
+Tests use a separate `test_` database that is created and torn down automatically. No production data is touched. External systems (IAPD API, SEC downloads, SMTP, Elasticsearch) are mocked via the `mock_iapd`, `mock_es`, `mock_smtp`, and `mock_requests` fixtures in `tests/conftest.py`.
+
+Run with coverage locally:
+
+```bash
+docker compose exec api pytest tests/ --cov=api --cov=scripts --cov-report=term
+```
+
+### Frontend (Vitest + Playwright)
+
+```bash
+cd frontend
+npm test              # Vitest unit tests
+npm run test:e2e      # Playwright E2E smoke (requires make install first)
+```
+
+### Coverage thresholds
+
+CI's `coverage-check` job fails the PR if any bucket drops below its floor:
+
+| Surface | Floor |
+|---|---|
+| `api/services/` | 80% |
+| `api/celery_tasks/` | 80% |
+| `api/routes/` | 70% |
+| `scripts/` | 60% |
+
+Floors are enforced by `scripts/check_coverage.py` against `coverage.xml`. Raise floors over time; lowering them requires explicit discussion.
 
 ---
 
@@ -496,15 +530,70 @@ docker compose exec api python scripts/index_firms_to_es.py
 
 | Target | What it does |
 |--------|-------------|
-| `make up` | Start all Docker services in detached mode |
+| `make install` | One-command install: copies `.env` from `.env.example` if missing, brings services up, blocks until `/health` is 200. Use this for first-time setup. |
+| `make up` | Start all Docker services in detached mode (no health wait) |
 | `make down` | Stop and remove all containers |
 | `make restart` | `down` then `up` |
+| `make verify` | Five-check readiness table (API / Postgres / ES / Redis / Celery worker). Run after `make install` or any time you suspect a service is down. |
 | `make logs` | Tail logs for all services |
-| `make migrate` | Run `alembic upgrade head` in the API container |
-| `make seed` | Insert default platforms and seed Celery Beat schedules |
+| `make logs-api` | Tail API logs only |
+| `make logs-worker` | Tail Celery worker logs only |
+| `make logs-beat` | Tail Celery beat logs only |
+| `make migrate` | Run `alembic upgrade head` in the API container (entrypoint already does this; this is an escape hatch) |
+| `make seed` | Insert default platforms, schedules, and questionnaires (entrypoint already does this; escape hatch) |
 | `make seed-schedules` | Seed Celery Beat schedules only |
 | `make load-data` | Full data pipeline: bulk CSV (2000–2024) → 2025+ filing data → ES index → AUM backfill |
 | `make test` | Run the full pytest suite |
+| `make test-frontend` | Run frontend Vitest unit tests |
 | `make reindex` | Re-index all firms into Elasticsearch (useful after schema changes) |
+| `make dlq-inspect` | List tasks that exhausted retries and landed in the `dead_letter` queue |
 | `make shell` | Open a bash shell inside the API container |
 | `make ps` | Show status of all running containers |
+
+---
+
+## 12. CI/CD
+
+GitHub Actions workflow at `.github/workflows/ci.yml`. Five jobs:
+
+| Job | When | What it does |
+|---|---|---|
+| `backend` | push + PR | Lint (ruff) → mypy (permissive) → pytest with `--cov=api --cov=scripts`, uploads `coverage.xml` |
+| `frontend` | push + PR | Lint → Vitest → production build |
+| `coverage-check` | push + PR (after `backend`) | Runs `scripts/check_coverage.py` against `coverage.xml`; fails if any bucket drops below its floor |
+| `smoke-install` | push + PR | Fresh-runner `cp .env.example .env && make install && make verify && make test`. Catches regressions in the auto-init entrypoint. |
+| `sec-schema-drift` | weekly (Mon 14:00 UTC) | Runs `scripts/probe_sec_schema.py` against live SEC endpoints. Fails loud if `reports_metadata.json` shape, URL patterns, or advW column headers drift. |
+
+Reproduce locally:
+
+```bash
+# Backend gate
+ruff check api scripts tests
+pytest tests/ --cov=api --cov=scripts --cov-report=xml
+COV_SERVICES_MIN=80 COV_CELERY_MIN=80 COV_ROUTES_MIN=70 COV_SCRIPTS_MIN=60 \
+    python scripts/check_coverage.py coverage.xml
+
+# Smoke install
+docker compose down -v
+cp .env.example .env && make install && make verify && make test
+
+# Schema drift (runs against live SEC endpoints — be polite with frequency)
+python scripts/probe_sec_schema.py --months 2
+```
+
+---
+
+## 13. Upgrading an Existing Install
+
+If you're on an older commit that predates the auto-init entrypoint (anything before the Phase 1 distribution hardening), this is the upgrade path:
+
+```bash
+git pull
+docker compose build            # rebuild images with the new entrypoint
+make restart                    # entrypoint runs pending migrations + seeds on start
+make verify                     # confirm all five checks are green
+```
+
+No data loss — Alembic handles the migration, existing `firms`, `sync_manifest`, and platform rows are preserved. If `make verify` flags anything red, check `make logs-api` for the entrypoint output.
+
+If you have local uncommitted schedules in `cron_schedules` that conflict with the seeded defaults, the seed scripts skip existing rows by name, so your customisations are safe. Same for platforms and questionnaires.
