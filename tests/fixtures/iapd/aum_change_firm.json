@@ -1,0 +1,24 @@
+{
+  "basicInformation": {
+    "firmId": 100004,
+    "firmName": "Growing Capital Partners LLC",
+    "iaSECNumber": "801-54321",
+    "advFilingDate": "2026-01-12"
+  },
+  "iaFirmAddressDetails": {
+    "officeAddress": {
+      "street1": "1 Market Street",
+      "city": "San Francisco",
+      "state": "CA",
+      "postalCode": "94105",
+      "country": "USA"
+    }
+  },
+  "registrationStatus": [
+    {
+      "secJurisdiction": "SEC",
+      "status": "Active",
+      "statusEffectiveDate": "2015-03-01"
+    }
+  ]
+}

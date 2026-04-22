@@ -1,0 +1,24 @@
+{
+  "basicInformation": {
+    "firmId": 100005,
+    "firmName": "Mobile Advisors LLC",
+    "iaSECNumber": "801-11111",
+    "advFilingDate": "2026-03-01"
+  },
+  "iaFirmAddressDetails": {
+    "officeAddress": {
+      "street1": "999 New Avenue",
+      "city": "Austin",
+      "state": "TX",
+      "postalCode": "73301",
+      "country": "USA"
+    }
+  },
+  "registrationStatus": [
+    {
+      "secJurisdiction": "SEC",
+      "status": "Approved",
+      "statusEffectiveDate": "2018-07-15"
+    }
+  ]
+}

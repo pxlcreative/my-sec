@@ -1,0 +1,28 @@
+{
+  "reports": [
+    {
+      "year": "2026",
+      "fileType": "advFilingData",
+      "fileName": "advFilingData_2026_01.zip",
+      "displayName": "ADV Filing Data — January 2026",
+      "fileSize": 2048,
+      "uploadedOn": "2026-02-01T06:00:00"
+    },
+    {
+      "year": "2026",
+      "fileType": "advW",
+      "fileName": "advW_2026_01.zip",
+      "displayName": "ADV-W Withdrawals — January 2026",
+      "fileSize": 512,
+      "uploadedOn": "2026-02-01T06:00:00"
+    },
+    {
+      "year": "2026",
+      "fileType": "advBrochures",
+      "fileName": "advBrochures_2026_01.zip",
+      "displayName": "ADV Brochures — January 2026",
+      "fileSize": 1048576,
+      "uploadedOn": "2026-02-01T06:00:00"
+    }
+  ]
+}

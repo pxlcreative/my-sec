@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend — lint + type + pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: secadv
+          POSTGRES_PASSWORD: secadv
+          POSTGRES_DB: secadv
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U secadv"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd "curl -sf http://localhost:9200/_cluster/health | grep -qv '\"status\":\"red\"'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 20
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # conftest.py forces DATABASE_URL to the test DB; setting TEST_DATABASE_URL
+      # pins the host to the GitHub service network.
+      TEST_DATABASE_URL: postgresql://secadv:secadv@localhost:5432/secadv_test
+      ELASTICSEARCH_URL: http://localhost:9200
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: ci-secret-key-not-for-production
+      DATABASE_URL: postgresql://secadv:secadv@localhost:5432/secadv
+      PYTHONPATH: ${{ github.workspace }}/api
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -U secadv && exit 0
+            sleep 2
+          done
+          echo "Postgres never became ready"; exit 1
+
+      - name: Run Alembic migrations (main DB)
+        # Provides a schema for anything that doesn't use the conftest fixtures.
+        run: alembic upgrade head
+
+      - name: Lint with ruff
+        run: ruff check api scripts tests
+
+      - name: Type check with mypy
+        # Keep permissive initially: ignore missing imports, don't enforce strict.
+        # Tighten over time as typing debt gets paid down.
+        run: |
+          mypy api scripts \
+            --ignore-missing-imports \
+            --install-types --non-interactive \
+            --disable-error-code=annotation-unchecked \
+            || true
+
+      - name: Run pytest with coverage
+        run: |
+          pytest tests/ -v \
+            --cov=api \
+            --cov-report=xml \
+            --cov-report=term \
+            --maxfail=10
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  frontend:
+    name: Frontend — lint + test + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Lint
+        # Allow failure while the lint baseline is still being stabilized.
+        run: npm run lint || true
+
+      - name: Test (Vitest) — added in Phase 3
+        # Vitest isn't configured yet; step stays in so adding the config
+        # in Phase 3 doesn't also require a CI change.
+        run: |
+          if [ -f vitest.config.ts ] || [ -f vitest.config.js ]; then
+            npm test
+          else
+            echo "Vitest not configured yet — skipping."
+          fi
+
+      - name: Build
+        run: npm run build

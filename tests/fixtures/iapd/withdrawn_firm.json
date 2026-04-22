@@ -1,0 +1,24 @@
+{
+  "basicInformation": {
+    "firmId": 100002,
+    "firmName": "Withdrawn Advisory Services Inc",
+    "iaSECNumber": "801-99999",
+    "advFilingDate": "2025-02-10"
+  },
+  "iaFirmAddressDetails": {
+    "officeAddress": {
+      "street1": "456 Pine Avenue",
+      "city": "Seattle",
+      "state": "WA",
+      "postalCode": "98101",
+      "country": "USA"
+    }
+  },
+  "registrationStatus": [
+    {
+      "secJurisdiction": "SEC",
+      "status": "Withdrawn",
+      "statusEffectiveDate": "2025-02-10"
+    }
+  ]
+}

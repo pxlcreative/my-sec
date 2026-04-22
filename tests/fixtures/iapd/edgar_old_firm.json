@@ -1,0 +1,17 @@
+{
+  "basicInformation": {
+    "firmId": 100003,
+    "firmName": "Legacy Advisors 2005",
+    "iaSECNumber": "801-00500",
+    "advFilingDate": "2007-11-30"
+  },
+  "iaFirmAddressDetails": {
+    "officeAddress": {
+      "street1": "789 Old Road",
+      "city": "Boston",
+      "state": "MA",
+      "postalCode": "02101",
+      "country": "USA"
+    }
+  }
+}

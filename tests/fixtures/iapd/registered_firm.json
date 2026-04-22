@@ -1,0 +1,24 @@
+{
+  "basicInformation": {
+    "firmId": 100001,
+    "firmName": "Acme Capital Management LLC",
+    "iaSECNumber": "801-12345",
+    "advFilingDate": "2025-03-15"
+  },
+  "iaFirmAddressDetails": {
+    "officeAddress": {
+      "street1": "123 Main Street",
+      "city": "New York",
+      "state": "NY",
+      "postalCode": "10001-1234",
+      "country": "USA"
+    }
+  },
+  "registrationStatus": [
+    {
+      "secJurisdiction": "SEC",
+      "status": "Approved",
+      "statusEffectiveDate": "2010-01-15"
+    }
+  ]
+}

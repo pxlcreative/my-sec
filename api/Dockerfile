@@ -8,8 +8,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-dev.txt ./
+# Install production + dev deps so `docker compose exec api pytest` works.
+# To build a slim production image, pass --build-arg INSTALL_DEV=0.
+ARG INSTALL_DEV=1
+RUN pip install --no-cache-dir -r requirements.txt && \
+    if [ "$INSTALL_DEV" = "1" ]; then pip install --no-cache-dir -r requirements-dev.txt; fi
 
 # Copy source into image (overridden at runtime by volume mounts in dev)
 COPY api/ api/

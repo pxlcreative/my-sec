@@ -1,0 +1,16 @@
+# Development / test dependencies on top of requirements.txt.
+# Installed into the api container alongside production deps so
+# `docker compose exec api pytest` works out of the box.
+
+-r requirements.txt
+
+# Test utilities
+responses==0.25.3        # HTTP mocking for SEC/IAPD download tests
+freezegun==1.5.1         # Freeze datetime.now / date.today in tests
+pytest-cov==5.0.0        # Coverage reporting
+pytest-mock==3.14.0      # Cleaner mocker fixture
+
+# Lint / type
+ruff==0.5.5
+mypy==1.11.1
+types-requests==2.32.0.20240712
