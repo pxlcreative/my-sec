@@ -14,7 +14,6 @@ from __future__ import annotations
 import datetime
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 
 def _make_job(db, **overrides):
@@ -104,7 +103,7 @@ class TestCancelSyncJob:
     def test_cancel_pending_job(self, client, db):
         job = _make_job(db, job_type="monthly_data", status="pending")
 
-        with patch("celery_tasks.app.app.control") as mock_control:
+        with patch("celery_tasks.app.app.control"):
             r = client.post(f"/api/sync/jobs/{job.id}/cancel")
 
         assert r.status_code == 200
@@ -127,7 +126,6 @@ class TestCancelSyncJob:
 class TestTriggerMonthlySync:
     def test_creates_job_and_enqueues(self, client, db):
         from models.sync_job import SyncJob
-        from sqlalchemy import select
 
         fake_task = MagicMock()
         fake_task.id = "task-xyz"

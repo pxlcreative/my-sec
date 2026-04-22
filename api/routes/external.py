@@ -13,7 +13,6 @@ Endpoints:
   POST /api/external/match/bulk                   Bulk CRD matching (same logic as /api/match/bulk)
 """
 import logging
-import traceback
 from pathlib import Path
 
 import requests as _requests

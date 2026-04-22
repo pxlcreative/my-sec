@@ -14,7 +14,6 @@ Covers:
 from __future__ import annotations
 
 import datetime
-import json
 
 from services.metadata_service import (
     fetch_metadata,

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import datetime
 
-import pytest
 
 from services.change_detector import (
     canonical_json,

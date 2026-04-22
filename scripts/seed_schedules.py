@@ -6,7 +6,6 @@ Safe to run multiple times — skips rows that already exist by name.
 Usage:
     docker compose exec api python scripts/seed_schedules.py
 """
-import os
 import sys
 from pathlib import Path
 
@@ -58,7 +57,7 @@ def main() -> None:
         ).first()
         if old:
             old.enabled = False
-            print(f"  disable monthly-pdf-sync (replaced by monthly-data-sync)")
+            print("  disable monthly-pdf-sync (replaced by monthly-data-sync)")
 
         for entry in DEFAULT_SCHEDULES:
             existing = db.scalars(

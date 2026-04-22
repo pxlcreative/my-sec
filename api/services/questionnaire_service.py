@@ -313,7 +313,6 @@ def build_questionnaire_xlsx(
     firm,
 ) -> bytes:
     """Build and return Excel workbook bytes for the questionnaire response."""
-    import openpyxl
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Protection, Side
     from openpyxl.utils import get_column_letter

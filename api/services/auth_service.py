@@ -163,7 +163,7 @@ def make_api_key_dep():
     Return a FastAPI Depends-compatible dependency that extracts the Bearer
     token from the Authorization header, validates it, and enforces rate limiting.
     """
-    from fastapi import Depends, Request
+    from fastapi import Request
 
     async def _dep(request: Request):
         auth_header = request.headers.get("Authorization", "")

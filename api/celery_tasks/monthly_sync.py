@@ -29,7 +29,7 @@ def monthly_data_sync(self, job_id: int | None = None) -> dict:
     from db import SessionLocal
     from models.sync_job import SyncJob
     from models.sync_manifest import SyncManifestEntry
-    from services.metadata_service import fetch_metadata, get_file_url, refresh_manifest, get_pending_files
+    from services.metadata_service import fetch_metadata, refresh_manifest, get_pending_files
     from sqlalchemy.orm.attributes import flag_modified
 
     log.info("monthly_data_sync starting")
@@ -199,8 +199,6 @@ def _process_filing_data(pending, session, job_id: int, _log_event) -> int:
         DOWNLOAD_DIR,
     )
     from services.metadata_service import get_file_url
-    from models.sync_manifest import SyncManifestEntry
-    from datetime import datetime, timezone
 
     database_url = os.environ.get("DATABASE_URL", "")
     dsn = database_url.replace("postgresql+psycopg2://", "postgresql://")
@@ -235,9 +233,6 @@ def _process_filing_data(pending, session, job_id: int, _log_event) -> int:
 
 def _process_advw(pending, session, job_id: int, _log_event) -> None:
     """Download and ingest each pending advW ZIP, marking withdrawn firms."""
-    import csv
-    import io
-    import zipfile as _zipfile
     import sys
     from pathlib import Path
 
@@ -245,7 +240,7 @@ def _process_advw(pending, session, job_id: int, _log_event) -> None:
     if str(_scripts) not in sys.path:
         sys.path.insert(0, str(_scripts))
 
-    from load_bulk_csv import download_zip, DOWNLOAD_DIR, _int_or_none, _parse_date
+    from load_bulk_csv import download_zip, DOWNLOAD_DIR
     from services.metadata_service import get_file_url
     import psycopg2
 
@@ -278,7 +273,6 @@ def _parse_advw_csv(zip_path) -> list[dict]:
     import csv
     import io
     import zipfile as _zipfile
-    from pathlib import Path
 
     rows = []
     with _zipfile.ZipFile(zip_path) as zf:

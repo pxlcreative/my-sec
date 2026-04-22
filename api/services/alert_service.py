@@ -34,7 +34,6 @@ def get_active_rules_for_platforms(platform_ids: list[int], db: Session):
       - rule.platform_ids IS NULL (global rule)
     """
     from models.alert import AlertRule
-    import sqlalchemy as sa
 
     stmt = select(AlertRule).where(AlertRule.active.is_(True))
 
@@ -398,7 +397,6 @@ def evaluate_alerts_for_firm(crd: int, changes: list[dict], db: Session) -> None
     Evaluate all active alert rules against a just-refreshed firm.
     Called after change detection when diffs is non-empty.
     """
-    from models.alert import AlertEvent
     from models.firm import Firm, FirmChange
     from models.platform import FirmPlatform
 

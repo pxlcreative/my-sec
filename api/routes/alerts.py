@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, desc, select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from db import get_db
@@ -136,7 +136,6 @@ def test_rule_delivery(rule_id: int, db: DbDep = None):
     Inserts a test AlertEvent but clearly marks it delivery_status='test'.
     Does not evaluate real firm data.
     """
-    from models.firm import Firm
 
     rule = _get_rule_or_404(rule_id, db)
 

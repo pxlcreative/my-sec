@@ -4,12 +4,10 @@ Tests for the Module H Excel DDQ generator.
 Uses a lightweight mock firm (no DB required).
 """
 import io
-from datetime import date, datetime
+from datetime import date
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import openpyxl
-import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -77,13 +75,18 @@ def _make_aum_history():
     ]
 
 
-def _build_and_reload(firm=None, aum_history=None, disclosures=None):
+_UNSET = object()
+
+
+def _build_and_reload(firm=None, aum_history=None, disclosures=_UNSET):
     """Build workbook, serialise to BytesIO, reload with openpyxl (no keep_vba)."""
     from services.excel_generator import build_dd_workbook
 
     firm         = firm         or _make_firm()
     aum_history  = aum_history  if aum_history is not None else _make_aum_history()
-    disclosures  = disclosures  or _make_disclosures()
+    # Distinguish "disclosures not passed" (use default) from explicit None.
+    if disclosures is _UNSET:
+        disclosures = _make_disclosures()
 
     wb = build_dd_workbook(firm, aum_history, disclosures)
     buf = io.BytesIO()

@@ -4,9 +4,7 @@ Module H – On-demand Due Diligence Excel workbook generator.
 Entry point: build_dd_workbook(firm, aum_history, disclosures) → openpyxl.Workbook
 """
 from datetime import date, datetime
-from typing import Any
 
-import openpyxl
 from openpyxl import Workbook
 from openpyxl.styles import (
     Alignment,

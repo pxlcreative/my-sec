@@ -6,7 +6,6 @@ GET  /api/match/jobs/{id}
 """
 from __future__ import annotations
 
-from unittest.mock import patch
 
 
 VALID_RECORDS = [

@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass, field
 
 from sqlalchemy import desc, func, or_, select, text
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from models.aum import FirmAumHistory
 from models.brochure import AdvBrochure

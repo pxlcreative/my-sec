@@ -32,7 +32,6 @@ External services are mocked by default:
 from __future__ import annotations
 
 import datetime
-import importlib
 import json
 import os
 import sys
@@ -151,6 +150,22 @@ def create_tables():
         conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
         conn.execute(text("CREATE SCHEMA public"))
     Base.metadata.create_all(_engine)
+    # Views aren't tracked in SQLAlchemy metadata, so create them explicitly.
+    # Keep this in sync with alembic/versions/0005_add_firm_aum_annual_view.py.
+    with _engine.begin() as conn:
+        conn.execute(text("""
+            CREATE VIEW firm_aum_annual AS
+            SELECT
+                crd_number,
+                EXTRACT(YEAR FROM filing_date)::INTEGER AS year,
+                MAX(aum_total) AS peak_aum,
+                MIN(aum_total) AS trough_aum,
+                (ARRAY_AGG(aum_total ORDER BY filing_date DESC))[1] AS latest_aum_for_year,
+                COUNT(*) AS filing_count
+            FROM firm_aum_history
+            WHERE aum_total IS NOT NULL
+            GROUP BY crd_number, EXTRACT(YEAR FROM filing_date)
+        """))
     yield
     # Leave the schema in place for postmortem debugging; the next session
     # nukes it anyway.
@@ -319,7 +334,7 @@ def mock_iapd(monkeypatch, iapd_fixtures):
                 100003: iapd_fixtures.get("edgar_old_firm"),
             }
             self.errors: dict[int, Exception] = {
-                100404: ValueError(f"No IAPD results"),
+                100404: ValueError("No IAPD results"),
                 100429: RuntimeError("IAPD rate limit exceeded after retries"),
             }
             self.calls: list[int] = []

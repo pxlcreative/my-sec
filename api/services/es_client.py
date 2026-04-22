@@ -11,7 +11,7 @@ import logging
 import re
 from typing import Any
 
-from elasticsearch import Elasticsearch, NotFoundError
+from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 
 from config import settings

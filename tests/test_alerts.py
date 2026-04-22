@@ -32,7 +32,7 @@ class TestAlertRulesCrud:
         payload = {
             "label": "Deregistration Watch",
             "rule_type": "deregistration",
-            "delivery": "log",
+            "delivery": "in_app",
         }
         r = client.post("/api/alerts/rules", json=payload)
         assert r.status_code == 201
@@ -47,7 +47,7 @@ class TestAlertRulesCrud:
             "label": "AUM Drop 20%",
             "rule_type": "aum_decline_pct",
             "threshold_pct": 20.0,
-            "delivery": "log",
+            "delivery": "in_app",
         }
         r = client.post("/api/alerts/rules", json=payload)
         assert r.status_code == 201
@@ -58,7 +58,7 @@ class TestAlertRulesCrud:
         payload = {
             "label": "Platform-scoped Alert",
             "rule_type": "deregistration",
-            "delivery": "log",
+            "delivery": "in_app",
             "platform_ids": [seeded_platform.id],
         }
         r = client.post("/api/alerts/rules", json=payload)
@@ -66,14 +66,14 @@ class TestAlertRulesCrud:
         assert r.json()["platform_ids"] == [seeded_platform.id]
 
     def test_list_rules_after_create(self, client):
-        client.post("/api/alerts/rules", json={"label": "R1", "rule_type": "deregistration", "delivery": "log"})
-        client.post("/api/alerts/rules", json={"label": "R2", "rule_type": "deregistration", "delivery": "log"})
+        client.post("/api/alerts/rules", json={"label": "R1", "rule_type": "deregistration", "delivery": "in_app"})
+        client.post("/api/alerts/rules", json={"label": "R2", "rule_type": "deregistration", "delivery": "in_app"})
         r = client.get("/api/alerts/rules")
         assert r.status_code == 200
         assert len(r.json()) == 2
 
     def test_delete_rule_soft_deletes(self, client):
-        r = client.post("/api/alerts/rules", json={"label": "Ephemeral", "rule_type": "deregistration", "delivery": "log"})
+        r = client.post("/api/alerts/rules", json={"label": "Ephemeral", "rule_type": "deregistration", "delivery": "in_app"})
         rule_id = r.json()["id"]
         del_r = client.delete(f"/api/alerts/rules/{rule_id}")
         assert del_r.status_code == 204
@@ -97,7 +97,7 @@ class TestAlertEvents:
         assert r.json() == []
 
     def test_filter_events_by_rule_id(self, client, db):
-        rule = AlertRule(label="R", rule_type="deregistration", delivery="log", active=True)
+        rule = AlertRule(label="R", rule_type="deregistration", delivery="in_app", active=True)
         db.add(rule)
         db.flush()
         event = AlertEvent(
@@ -124,7 +124,7 @@ class TestAlertEvents:
 
 class TestAlertTestDelivery:
     def test_test_rule_log_delivery(self, client):
-        r = client.post("/api/alerts/rules", json={"label": "Test Rule", "rule_type": "deregistration", "delivery": "log"})
+        r = client.post("/api/alerts/rules", json={"label": "Test Rule", "rule_type": "deregistration", "delivery": "in_app"})
         rule_id = r.json()["id"]
         test_r = client.post(f"/api/alerts/rules/{rule_id}/test")
         assert test_r.status_code == 200
@@ -162,13 +162,13 @@ class TestDeregistrationEvaluation:
         rule = AlertRule(
             label="Deregistration Watch",
             rule_type="deregistration",
-            delivery="log",
+            delivery="in_app",
             active=True,
         )
         db.add(rule)
         db.flush()
 
-        diffs = [{"field": "registration_status", "old": "Registered", "new": "Withdrawn"}]
+        diffs = [{"field_path": "registration_status", "old_value": "Registered", "new_value": "Withdrawn"}]
         evaluate_alerts_for_firm(200001, diffs, db)
         db.flush()
 

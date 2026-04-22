@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import datetime
 import zipfile
-from pathlib import Path
 
 import pytest
 import requests

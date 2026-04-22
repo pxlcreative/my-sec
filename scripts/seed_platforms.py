@@ -6,7 +6,6 @@ Safe to run multiple times — uses INSERT ... ON CONFLICT DO NOTHING.
 Usage:
     docker compose run --rm api python /project/scripts/seed_platforms.py
 """
-import os
 import sys
 from pathlib import Path
 

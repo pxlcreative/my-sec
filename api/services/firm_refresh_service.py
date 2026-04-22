@@ -22,7 +22,6 @@ def refresh_firm(crd: int, db: Session) -> list[dict]:
     6. Re-index the firm to Elasticsearch (best-effort; errors are logged, not raised)
     7. Return list of diff dicts (empty if no change)
     """
-    from models.aum import FirmAumHistory
     from models.firm import Firm
     from services.change_detector import (
         canonical_json,

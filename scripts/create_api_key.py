@@ -41,7 +41,7 @@ def main():
     print()
     print(f"API key created (id={api_key.id}, label={args.label!r})")
     print()
-    print(f"  RAW KEY (copy now — never shown again):")
+    print("  RAW KEY (copy now — never shown again):")
     print(f"  {raw_key}")
     print()
     print("  Usage:  Authorization: Bearer <raw_key>")

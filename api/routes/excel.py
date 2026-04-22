@@ -31,7 +31,6 @@ def _safe_name(s: str, max_len: int = 30) -> str:
 def due_diligence_excel(crd: int, db: Session = Depends(get_db)):
     from models.aum import FirmAumHistory
     from models.disclosures import FirmDisclosuresSummary
-    from models.firm import Firm
     from services.firm_service import get_firm
 
     firm = get_firm(crd, db)   # raises 404 if not found
@@ -48,7 +47,7 @@ def due_diligence_excel(crd: int, db: Session = Depends(get_db)):
 
     try:
         wb = build_dd_workbook(firm, aum_history, disclosures)
-    except Exception as exc:
+    except Exception:
         log.exception("due_diligence_excel(%d): workbook build failed", crd)
         raise HTTPException(status_code=500, detail="Failed to generate workbook")
 
