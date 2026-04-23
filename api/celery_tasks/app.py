@@ -14,7 +14,14 @@ from config import settings
 # Named queues. Keep this list in sync with the `-Q` flag on the worker
 # command in docker-compose.yml. `dead_letter` holds tasks that exhausted
 # their retries — inspect via `make dlq-inspect`.
+#
+# Queue priority (listed highest to lowest):
+#   sync  — monthly data sync and brochure fetches; must not be blocked by
+#            the large refresh_firm_task floods that fill the celery queue
+#   match — interactive bulk-match jobs
+#   celery — default: refresh_firm_task, alert evaluation, etc.
 QUEUES = (
+    Queue("sync"),
     Queue("celery"),
     Queue("match"),
     Queue("dead_letter"),
@@ -64,5 +71,11 @@ app.conf.update(
     task_default_queue="celery",
     task_routes={
         "celery_tasks.match_tasks.run_bulk_match": {"queue": "match"},
+        # Sync tasks get their own queue so refresh_firm_task floods don't
+        # delay manually-triggered monthly syncs or brochure fetches.
+        "monthly_sync.monthly_data_sync":                      {"queue": "sync"},
+        "brochure_tasks.sync_all_platforms_brochures":         {"queue": "sync"},
+        "brochure_tasks.sync_platform_brochures":              {"queue": "sync"},
+        "brochure_tasks.fetch_firm_brochures":                 {"queue": "sync"},
     },
 )

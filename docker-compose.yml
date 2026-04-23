@@ -89,7 +89,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: ["sh", "-c", "cd /project/api && celery -A celery_tasks.app worker --loglevel=info -Q match,celery,dead_letter"]
+    command: ["sh", "-c", "cd /project/api && celery -A celery_tasks.app worker --loglevel=info -Q sync,match,celery,dead_letter"]
     healthcheck:
       test: ["CMD-SHELL", "celery -A celery_tasks.app inspect ping -d celery@$$HOSTNAME --timeout=5 > /dev/null 2>&1 || exit 1"]
       interval: 30s
