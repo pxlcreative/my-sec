@@ -292,6 +292,69 @@ def download_brochure(crd: int, version_id: int, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# POST /api/firms/{crd}/brochures/{version_id}/parse
+# GET  /api/firms/{crd}/brochures/{version_id}/parsed
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/{crd}/brochures/{version_id}/parse",
+    summary="Parse a brochure PDF via Reducto and store the result",
+)
+def parse_brochure_endpoint(crd: int, version_id: int, db: Session = Depends(get_db)):
+    from services import reducto_service
+
+    firm_service.get_firm(crd, db)  # raises 404 if firm not found
+
+    try:
+        result = reducto_service.parse_brochure(crd, version_id, db)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except RuntimeError as exc:
+        # Configuration errors (no api key, integration disabled)
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        log.error("parse_brochure(%s, %s) error\n%s", crd, version_id, traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Parse failed")
+
+    if result.parse_status == "failed":
+        # Persisted as failed but surface a 502 so the UI shows an error
+        raise HTTPException(
+            status_code=502,
+            detail=result.parse_error or "Reducto returned an error",
+        )
+    return result
+
+
+@router.get(
+    "/{crd}/brochures/{version_id}/parsed",
+    summary="Stored Reducto parse result for a brochure",
+)
+def get_brochure_parsed(crd: int, version_id: int, db: Session = Depends(get_db)):
+    from models.brochure import AdvBrochure
+    from schemas.reducto_settings import BrochureParsedContent
+    from sqlalchemy import select
+
+    row = db.scalars(
+        select(AdvBrochure).where(
+            AdvBrochure.crd_number == crd,
+            AdvBrochure.brochure_version_id == version_id,
+        ).limit(1)
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Brochure not found")
+
+    return BrochureParsedContent(
+        brochure_version_id=row.brochure_version_id,
+        parse_status=row.parse_status,
+        parsed_at=row.parsed_at,
+        reducto_job_id=row.reducto_job_id,
+        parse_error=row.parse_error,
+        parsed_markdown=row.parsed_markdown,
+        parsed_chunks=row.parsed_chunks,
+    )
+
+
+# ---------------------------------------------------------------------------
 # GET /api/firms/{crd}/disclosures
 # ---------------------------------------------------------------------------
 

@@ -64,6 +64,8 @@ export interface BrochureMeta {
   date_submitted: string | null
   source_month: string | null
   file_size_bytes: number | null
+  parse_status: string | null
+  parsed_at: string | null
 }
 
 export interface AumHistoryPoint {
@@ -285,6 +287,39 @@ export interface StorageTestResult {
   success: boolean
   backend: string
   message: string
+}
+
+export interface ReductoSettingsOut {
+  id: number
+  api_key: string | null
+  base_url: string
+  enabled: boolean
+  updated_at: string
+}
+
+export interface ReductoTestResult {
+  success: boolean
+  message: string
+}
+
+export interface BrochureParseResult {
+  brochure_version_id: number
+  parse_status: string
+  parsed_at: string | null
+  reducto_job_id: string | null
+  parse_error: string | null
+  page_count: number | null
+  chunk_count: number | null
+}
+
+export interface BrochureParsedContent {
+  brochure_version_id: number
+  parse_status: string | null
+  parsed_at: string | null
+  reducto_job_id: string | null
+  parse_error: string | null
+  parsed_markdown: string | null
+  parsed_chunks: unknown[] | null
 }
 
 // Questionnaires

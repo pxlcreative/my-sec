@@ -11,10 +11,11 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { AlertTriangle, ArrowLeft, Download, ExternalLink, FileQuestion, FileText, Loader2, Plus, RefreshCw, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle, Download, ExternalLink, FileQuestion, FileSearch, FileText, Loader2, Plus, RefreshCw, X, XCircle } from 'lucide-react'
 import { Button } from '../components/Button'
 import {
   addFirmPlatform,
+  getBrochureParsed,
   getFirm,
   getFirmAumHistory,
   getFirmBrochures,
@@ -25,6 +26,7 @@ import {
   getFirmQuestionnaire,
   getFirmQuestionnaires,
   getPlatforms,
+  parseBrochure,
   refreshFirm,
   regenerateFirmQuestionnaire,
   removeFirmPlatform,
@@ -732,6 +734,26 @@ function BrochuresTab({
   brochures: Awaited<ReturnType<typeof getFirmBrochures>>
   crd: number
 }) {
+  const queryClient = useQueryClient()
+  const { addToast } = useToast()
+  const [pendingVid, setPendingVid] = useState<number | null>(null)
+  const [viewingVid, setViewingVid] = useState<number | null>(null)
+
+  const parseMutation = useMutation({
+    mutationFn: (versionId: number) => parseBrochure(crd, versionId),
+    onMutate: (versionId) => setPendingVid(versionId),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['brochures', crd] })
+      const pages = result.page_count ? `${result.page_count} pages, ` : ''
+      addToast(`Parsed (${pages}${result.chunk_count ?? 0} chunks)`, 'success')
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail ?? 'Parse failed'
+      addToast(detail, 'error')
+    },
+    onSettled: () => setPendingVid(null),
+  })
+
   return (
     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
       <div className="px-5 py-3 border-b border-gray-200">
@@ -748,42 +770,136 @@ function BrochuresTab({
               <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Source Month</th>
               <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">File Size</th>
               <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Download</th>
+              <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Parse</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {brochures.map((b) => (
-              <tr key={b.brochure_version_id} className="hover:bg-gray-50">
-                <td className="px-4 py-2">{formatDate(b.date_submitted)}</td>
-                <td className="px-4 py-2">
-                  <a
-                    href={`/api/firms/${crd}/brochures/${b.brochure_version_id}/download`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-brand-600 hover:text-brand-700 hover:underline"
-                  >
-                    {b.brochure_name ?? `Brochure ${b.brochure_version_id}`}
-                  </a>
-                </td>
-                <td className="px-4 py-2 font-mono text-xs">{b.source_month ?? '—'}</td>
-                <td className="px-4 py-2 text-sm">
-                  {b.file_size_bytes ? `${(b.file_size_bytes / 1024).toFixed(0)} KB` : '—'}
-                </td>
-                <td className="px-4 py-2">
-                  <a
-                    href={`/api/firms/${crd}/brochures/${b.brochure_version_id}/download`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 text-xs font-medium"
-                  >
-                    <Download className="w-3 h-3" />
-                    Download
-                  </a>
-                </td>
-              </tr>
-            ))}
+            {brochures.map((b) => {
+              const isParsing = parseMutation.isPending && pendingVid === b.brochure_version_id
+              return (
+                <tr key={b.brochure_version_id} className="hover:bg-gray-50">
+                  <td className="px-4 py-2">{formatDate(b.date_submitted)}</td>
+                  <td className="px-4 py-2">
+                    <a
+                      href={`/api/firms/${crd}/brochures/${b.brochure_version_id}/download`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-brand-600 hover:text-brand-700 hover:underline"
+                    >
+                      {b.brochure_name ?? `Brochure ${b.brochure_version_id}`}
+                    </a>
+                  </td>
+                  <td className="px-4 py-2 font-mono text-xs">{b.source_month ?? '—'}</td>
+                  <td className="px-4 py-2 text-sm">
+                    {b.file_size_bytes ? `${(b.file_size_bytes / 1024).toFixed(0)} KB` : '—'}
+                  </td>
+                  <td className="px-4 py-2">
+                    <a
+                      href={`/api/firms/${crd}/brochures/${b.brochure_version_id}/download`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 text-xs font-medium"
+                    >
+                      <Download className="w-3 h-3" />
+                      Download
+                    </a>
+                  </td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => parseMutation.mutate(b.brochure_version_id)}
+                        disabled={isParsing}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                        title="Parse PDF via Reducto"
+                      >
+                        {isParsing ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <FileSearch className="w-3 h-3" />
+                        )}
+                        {b.parse_status === 'success' ? 'Re-parse' : 'Parse'}
+                      </button>
+                      {b.parse_status === 'success' && (
+                        <button
+                          onClick={() => setViewingVid(b.brochure_version_id)}
+                          className="inline-flex items-center gap-1 text-xs text-green-600 hover:text-green-700"
+                          title={`Parsed ${b.parsed_at ? new Date(b.parsed_at).toLocaleString() : ''}`}
+                        >
+                          <CheckCircle className="w-3 h-3" />
+                          View
+                        </button>
+                      )}
+                      {b.parse_status === 'failed' && (
+                        <span className="inline-flex items-center gap-1 text-xs text-red-600" title="Last parse failed">
+                          <XCircle className="w-3 h-3" />
+                          Failed
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       )}
+
+      {viewingVid !== null && (
+        <ParsedBrochureModal crd={crd} versionId={viewingVid} onClose={() => setViewingVid(null)} />
+      )}
+    </div>
+  )
+}
+
+function ParsedBrochureModal({
+  crd,
+  versionId,
+  onClose,
+}: {
+  crd: number
+  versionId: number
+  onClose: () => void
+}) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['brochure-parsed', crd, versionId],
+    queryFn: () => getBrochureParsed(crd, versionId),
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[85vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-800">Parsed Brochure</h3>
+            <p className="text-xs text-gray-500">
+              Version {versionId}
+              {data?.parsed_at && ` · parsed ${new Date(data.parsed_at).toLocaleString()}`}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="overflow-auto p-5">
+          {isLoading && <Skeleton className="h-64" />}
+          {error && (
+            <p className="text-sm text-red-600">Failed to load parsed content.</p>
+          )}
+          {data && data.parse_status !== 'success' && (
+            <p className="text-sm text-gray-500">
+              No parsed content available.{data.parse_error ? ` Error: ${data.parse_error}` : ''}
+            </p>
+          )}
+          {data?.parsed_markdown && (
+            <pre className="text-xs whitespace-pre-wrap font-mono text-gray-800 leading-relaxed">
+              {data.parsed_markdown}
+            </pre>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

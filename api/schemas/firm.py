@@ -59,6 +59,8 @@ class BrochureMeta(BaseModel):
     date_submitted: datetime.date | None
     source_month: str | None
     file_size_bytes: int | None
+    parse_status: str | None = None
+    parsed_at: datetime.datetime | None = None
 
 
 class AumHistoryPoint(BaseModel):

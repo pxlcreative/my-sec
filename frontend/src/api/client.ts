@@ -22,6 +22,10 @@ import type {
   CronScheduleOut,
   StorageSettingsOut,
   StorageTestResult,
+  ReductoSettingsOut,
+  ReductoTestResult,
+  BrochureParseResult,
+  BrochureParsedContent,
   QuestionnaireTemplateOut,
   QuestionnaireTemplateDetailOut,
   QuestionnaireQuestionOut,
@@ -272,6 +276,41 @@ export async function updateStorageSettings(
 
 export async function testStorageConnection(): Promise<StorageTestResult> {
   const response = await api.post('/settings/storage/test')
+  return response.data
+}
+
+// Reducto settings
+export async function getReductoSettings(): Promise<ReductoSettingsOut> {
+  const response = await api.get('/settings/reducto')
+  return response.data
+}
+
+export async function updateReductoSettings(
+  data: Partial<ReductoSettingsOut>
+): Promise<ReductoSettingsOut> {
+  const response = await api.patch('/settings/reducto', data)
+  return response.data
+}
+
+export async function testReductoConnection(): Promise<ReductoTestResult> {
+  const response = await api.post('/settings/reducto/test')
+  return response.data
+}
+
+// Brochure parsing
+export async function parseBrochure(
+  crd: number,
+  versionId: number
+): Promise<BrochureParseResult> {
+  const response = await api.post(`/firms/${crd}/brochures/${versionId}/parse`)
+  return response.data
+}
+
+export async function getBrochureParsed(
+  crd: number,
+  versionId: number
+): Promise<BrochureParsedContent> {
+  const response = await api.get(`/firms/${crd}/brochures/${versionId}/parsed`)
   return response.data
 }
 

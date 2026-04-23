@@ -1,10 +1,22 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { HardDrive, Cloud, CheckCircle, XCircle, Eye, EyeOff, Loader2, Save, Zap } from 'lucide-react'
-import { getStorageSettings, updateStorageSettings, testStorageConnection } from '../api/client'
+import { HardDrive, Cloud, CheckCircle, XCircle, Eye, EyeOff, Loader2, Save, Zap, FileSearch } from 'lucide-react'
+import {
+  getReductoSettings,
+  getStorageSettings,
+  testReductoConnection,
+  testStorageConnection,
+  updateReductoSettings,
+  updateStorageSettings,
+} from '../api/client'
 import { Skeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
-import type { StorageSettingsOut, StorageTestResult } from '../types'
+import type {
+  ReductoSettingsOut,
+  ReductoTestResult,
+  StorageSettingsOut,
+  StorageTestResult,
+} from '../types'
 
 type Backend = 'local' | 's3' | 'azure'
 
@@ -239,6 +251,185 @@ export default function Settings() {
             </p>
           )}
         </div>
+      </div>
+
+      <div className="mt-6">
+        <ReductoSettingsCard />
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Reducto settings card
+// ---------------------------------------------------------------------------
+
+function ReductoSettingsCard() {
+  const queryClient = useQueryClient()
+  const { addToast } = useToast()
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['reducto-settings'],
+    queryFn: getReductoSettings,
+  })
+
+  const [form, setForm] = useState<Partial<ReductoSettingsOut>>({})
+  const [showKey, setShowKey] = useState(false)
+  const [testResult, setTestResult] = useState<ReductoTestResult | null>(null)
+
+  useEffect(() => {
+    if (data) setForm(data)
+  }, [data])
+
+  const saveMutation = useMutation({
+    mutationFn: () => updateReductoSettings(form),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reducto-settings'] })
+      addToast('Reducto settings saved', 'success')
+    },
+    onError: () => addToast('Failed to save Reducto settings', 'error'),
+  })
+
+  const testMutation = useMutation({
+    mutationFn: testReductoConnection,
+    onSuccess: (result) => {
+      setTestResult(result)
+      addToast(result.message, result.success ? 'success' : 'error')
+    },
+    onError: () => addToast('Reducto connection test failed', 'error'),
+  })
+
+  const set = <K extends keyof ReductoSettingsOut>(field: K, value: ReductoSettingsOut[K] | null) =>
+    setForm((f) => ({ ...f, [field]: value }))
+
+  if (isLoading) {
+    return <Skeleton className="h-48" />
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm flex items-center justify-between">
+        <span>Failed to load Reducto settings.</span>
+        <button
+          onClick={() => refetch()}
+          className="ml-4 px-3 py-1 text-xs border border-red-300 rounded hover:bg-red-100"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <FileSearch className="w-4 h-4 text-gray-500" />
+          <h2 className="text-sm font-semibold text-gray-700">Reducto PDF Parsing</h2>
+        </div>
+        {data?.updated_at && (
+          <span className="text-xs text-gray-400">
+            Last saved {new Date(data.updated_at).toLocaleString()}
+          </span>
+        )}
+      </div>
+
+      <p className="text-xs text-gray-500 mb-4">
+        Enable on-demand parsing of ADV Part 2 brochure PDFs into structured markdown via the{' '}
+        <a
+          href="https://docs.reducto.ai/overview"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-brand-600 hover:underline"
+        >
+          Reducto API
+        </a>
+        . When enabled, a Parse button is shown for each brochure on the firm's Brochures tab.
+      </p>
+
+      <div className="space-y-4">
+        <label className="flex items-center gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={!!form.enabled}
+            onChange={(e) => set('enabled', e.target.checked)}
+            className="accent-brand-600"
+          />
+          Enable Reducto parsing
+        </label>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">API Key</label>
+          <div className="relative">
+            <input
+              type={showKey ? 'text' : 'password'}
+              value={form.api_key ?? ''}
+              onChange={(e) => set('api_key', e.target.value || null)}
+              placeholder="rdc_live_..."
+              className="w-full text-sm border border-gray-300 rounded-md px-3 py-2 pr-10 focus:ring-2 focus:ring-brand-600 focus:border-brand-600 outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey((s) => !s)}
+              className="absolute right-2 top-2 p-1 text-gray-400 hover:text-gray-600"
+              tabIndex={-1}
+              title={showKey ? 'Hide' : 'Show'}
+            >
+              {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          {form.api_key === '***' && (
+            <p className="text-xs text-gray-400 mt-1">A key is saved. Re-enter to change it.</p>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Base URL</label>
+          <input
+            type="text"
+            value={form.base_url ?? ''}
+            onChange={(e) => set('base_url', e.target.value)}
+            placeholder="https://platform.reducto.ai"
+            className="w-full text-sm border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-brand-600 focus:border-brand-600 outline-none"
+          />
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap pt-1">
+          <button
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending}
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
+          >
+            {saveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Save Settings
+          </button>
+
+          <button
+            onClick={() => testMutation.mutate()}
+            disabled={testMutation.isPending}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+          >
+            {testMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+            Test Connection
+          </button>
+
+          {testResult && (
+            <div
+              className={`flex items-center gap-1.5 text-sm font-medium ${
+                testResult.success ? 'text-green-600' : 'text-red-600'
+              }`}
+            >
+              {testResult.success ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+              {testResult.success ? 'Connected' : 'Failed'}
+            </div>
+          )}
+        </div>
+
+        {testResult && !testResult.success && (
+          <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">
+            {testResult.message}
+          </p>
+        )}
       </div>
     </div>
   )

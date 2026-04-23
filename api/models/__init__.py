@@ -21,3 +21,4 @@ from models.questionnaire import (  # noqa: F401
     QuestionnaireQuestion,
     QuestionnaireResponse,
 )
+from models.reducto_settings import ReductoSettings  # noqa: F401
